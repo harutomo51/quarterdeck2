@@ -180,33 +180,62 @@ body {
   flex: 1;
 }
 
-.sidebar-tabs {
+.sidebar-topbar {
   display: flex;
-  gap: 2px;
-  padding: 6px 6px 0;
-  border-bottom: 1px solid #20242d;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 8px;
+}
+
+/* セグメント型タブ（ピル）。 */
+.sidebar-tabs {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #2a2f3a;
+  border-radius: 10px;
+  background: color-mix(in srgb, #000 35%, transparent);
 }
 
 .sidebar-tab {
   flex: 1;
-  border: 0;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
   font: inherit;
   font-size: 12px;
-  padding: 6px 4px;
+  font-weight: 600;
+  padding: 5px 4px;
   cursor: pointer;
-  border-radius: 6px 6px 0 0;
+  border-radius: 7px;
 }
 
 .sidebar-tab:hover {
-  background: #1c2029;
   color: var(--fg);
 }
 
 .sidebar-tab[aria-selected='true'] {
-  color: var(--accent);
-  border-bottom: 2px solid var(--accent);
+  color: var(--fg);
+  background: #1b2330;
+  border-color: color-mix(in srgb, var(--accent) 55%, #2a2f3a);
+}
+
+.sidebar-collapse {
+  flex: 0 0 auto;
+  border: 1px solid #2a2f3a;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.sidebar-collapse:hover {
+  color: var(--fg);
+  background: #1c2029;
 }
 
 .sidebar-body {
@@ -226,16 +255,31 @@ body {
 
 .git-panel-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 8px 10px;
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+
+.git-panel-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .git-panel-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.git-panel-path {
   font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .git-refresh {
@@ -275,7 +319,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 10px;
+  padding: 0 12px;
 }
 
 .git-graph-svg {
@@ -284,10 +328,10 @@ body {
 
 .git-graph-meta {
   min-width: 0;
+  flex: 1;
   display: flex;
-  flex-direction: column;
-  line-height: 1.25;
-  padding: 2px 0;
+  align-items: center;
+  gap: 6px;
 }
 
 .git-hash {
@@ -297,17 +341,42 @@ body {
 }
 
 .git-subject {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+/* ===== Ref badges (HEAD / remote / tag / branch) ===== */
+.git-ref {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 8px;
+  border-radius: 999px;
   white-space: nowrap;
 }
 
-.git-sub {
-  color: var(--muted);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.git-ref--head {
+  background: #e0a82e;
+  color: #1a1205;
+}
+
+.git-ref--remote {
+  background: #2ea043;
+  color: #f0fff4;
+}
+
+.git-ref--tag {
+  background: #1f6feb;
+  color: #eaf2ff;
+}
+
+.git-ref--branch {
+  background: #2a2f3a;
+  color: var(--fg);
 }
 
 .worktree-row {

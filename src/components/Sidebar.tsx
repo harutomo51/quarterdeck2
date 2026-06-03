@@ -19,7 +19,7 @@ interface SidebarProps {
 
 const TABS: readonly { id: SidebarTab; label: string }[] = [
   { id: 'files', label: 'Files' },
-  { id: 'graph', label: 'Graph' },
+  { id: 'graph', label: 'Git' },
   { id: 'worktree', label: 'Worktree' },
 ];
 
@@ -53,19 +53,29 @@ export function Sidebar({ layout, onChange }: SidebarProps) {
         onPointerDown={startResize}
       />
       <div className="sidebar-inner">
-        <div className="sidebar-tabs" role="tablist">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={layout.activeTab === t.id}
-              className="sidebar-tab"
-              onClick={() => onChange({ activeTab: t.id })}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="sidebar-topbar">
+          <div className="sidebar-tabs" role="tablist">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={layout.activeTab === t.id}
+                className="sidebar-tab"
+                onClick={() => onChange({ activeTab: t.id })}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="sidebar-collapse"
+            aria-label="サイドバーを隠す"
+            onClick={() => onChange({ sidebarCollapsed: true })}
+          >
+            ⇥
+          </button>
         </div>
         <div className="sidebar-body">
           <div className="sidebar-pane" hidden={layout.activeTab !== 'files'}>

@@ -28,15 +28,16 @@ export default function App() {
       <header className="titlebar">
         <span className="titlebar-title">Quarterdeck</span>
         <div className="titlebar-actions">
-          <button
-            type="button"
-            className="titlebar-button"
-            aria-label={collapsed ? 'サイドバーを表示' : 'サイドバーを隠す'}
-            aria-pressed={!collapsed}
-            onClick={() => updateLayout({ sidebarCollapsed: !collapsed })}
-          >
-            {collapsed ? '⟨' : '⟩'}
-          </button>
+          {collapsed && (
+            <button
+              type="button"
+              className="titlebar-button"
+              aria-label="サイドバーを表示"
+              onClick={() => updateLayout({ sidebarCollapsed: false })}
+            >
+              ⇤
+            </button>
+          )}
           <button
             type="button"
             className="titlebar-button"

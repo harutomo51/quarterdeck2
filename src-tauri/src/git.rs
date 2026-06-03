@@ -8,9 +8,17 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde::Serialize;
 use tauri::State;
 
 use crate::fs_scope::FsRoot;
+
+/// git_log の戻り値。`root` はリポジトリ最上位パス（見出し表示用）、`log` は生テキスト。
+#[derive(Serialize)]
+pub struct GitLog {
+    root: String,
+    log: String,
+}
 
 /// `cwd` を起点に固定引数の git を実行し、stdout を返す。非ゼロ終了は stderr を Err に。
 fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
@@ -41,20 +49,25 @@ fn repo_root(cwd: &Path) -> Result<PathBuf, String> {
     Ok(PathBuf::from(top))
 }
 
-/// `git log` の生テキスト（フィールドは US=0x1f 区切り、最大 300 件）。
+/// リポジトリ root と `git log` の生テキスト（フィールドは US=0x1f 区切り、最大 300 件）。
+/// format は `%H%x1f%P%x1f%an%x1f%ar%x1f%D%x1f%s`（%D = ブランチ/タグ参照）。
 #[tauri::command]
-pub fn git_log(state: State<FsRoot>) -> Result<String, String> {
+pub fn git_log(state: State<FsRoot>) -> Result<GitLog, String> {
     let root = repo_root(&state.current())?;
-    run_git(
+    let log = run_git(
         &root,
         &[
             "log",
-            "--pretty=format:%H%x1f%P%x1f%an%x1f%ar%x1f%s",
+            "--pretty=format:%H%x1f%P%x1f%an%x1f%ar%x1f%D%x1f%s",
             "--date-order",
             "-n",
             "300",
         ],
-    )
+    )?;
+    Ok(GitLog {
+        root: root.to_string_lossy().to_string(),
+        log,
+    })
 }
 
 /// `git worktree list --porcelain` の生テキスト。

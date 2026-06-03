@@ -1,17 +1,31 @@
 /**
- * Git Graph パネル。invoke('git_log') の生テキストを純粋ロジック（lib/gitGraph）で
- * パース + レーン計算し、SVG のドット＋色付き縦線で描画する。
+ * Git Graph パネル。invoke('git_log') の {root, log} を純粋ロジック（lib/gitGraph）で
+ * パース + レーン計算し、SVG のリングドット＋色付き縦線で描画する。先頭には
+ * ブランチ/タグの ref バッジ（HEAD→ 黄 / remote 緑 / tag 水 / branch 青）を出す。
  * 更新は「マウント時（=タブアクティブ化）/ cwd 変更イベント / 手動ボタン」（ADR-0001）。
  */
 import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { computeGraph, laneCount, parseGitLog, type GraphRow } from '../lib/gitGraph';
+import {
+  computeGraph,
+  laneCount,
+  parseGitLog,
+  refKind,
+  refLabel,
+  type GraphRow,
+} from '../lib/gitGraph';
 
-const LANE_W = 14;
-const ROW_H = 26;
-const DOT_R = 4;
-const LANE_COLORS = ['#4cc2ff', '#b18cff', '#4ade80', '#fbbf24', '#fb7185', '#38bdf8'];
+interface GitLog {
+  root: string;
+  log: string;
+}
+
+const LANE_W = 16;
+const ROW_H = 30;
+const DOT_R = 4.5;
+// レーン 0 はアンバー基調。分岐レーンは色を巡回。
+const LANE_COLORS = ['#e0a82e', '#4cc2ff', '#b18cff', '#4ade80', '#fb7185', '#38bdf8'];
 
 function laneColor(col: number): string {
   return LANE_COLORS[col % LANE_COLORS.length];
@@ -19,14 +33,16 @@ function laneColor(col: number): string {
 
 export function GitGraph() {
   const [rows, setRows] = useState<GraphRow[] | null>(null);
+  const [root, setRoot] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const raw = await invoke<string>('git_log');
-      setRows(computeGraph(parseGitLog(raw)));
+      const res = await invoke<GitLog>('git_log');
+      setRoot(res.root);
+      setRows(computeGraph(parseGitLog(res.log)));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -50,7 +66,10 @@ export function GitGraph() {
   return (
     <div className="git-panel">
       <div className="git-panel-head">
-        <span className="git-panel-title">Git Graph</span>
+        <div className="git-panel-heading">
+          <span className="git-panel-title">Git Graph</span>
+          {root && <span className="git-panel-path">{root}</span>}
+        </div>
         <button type="button" className="git-refresh" onClick={() => void load()} aria-label="更新" disabled={loading}>
           ⟳
         </button>
@@ -74,18 +93,26 @@ export function GitGraph() {
                         y2={ROW_H}
                         stroke={laneColor(col)}
                         strokeWidth={2}
-                        opacity={0.5}
+                        opacity={0.85}
                       />
                     ) : null,
                   )}
-                  <circle cx={cx} cy={ROW_H / 2} r={DOT_R} fill={laneColor(row.column)} />
+                  <circle
+                    cx={cx}
+                    cy={ROW_H / 2}
+                    r={DOT_R}
+                    fill="var(--bg-base, #0f1115)"
+                    stroke={laneColor(row.column)}
+                    strokeWidth={2.5}
+                  />
                 </svg>
                 <div className="git-graph-meta">
-                  <span className="git-hash">{row.commit.hash.slice(0, 7)}</span>
+                  {row.commit.refs.map((ref) => (
+                    <span key={ref} className={`git-ref git-ref--${refKind(ref)}`}>
+                      {refLabel(ref)}
+                    </span>
+                  ))}
                   <span className="git-subject">{row.commit.subject}</span>
-                  <span className="git-sub">
-                    {row.commit.author} · {row.commit.relDate}
-                  </span>
                 </div>
               </li>
             );
