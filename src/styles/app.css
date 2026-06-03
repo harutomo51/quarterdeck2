@@ -320,10 +320,15 @@ body {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
+  /* SVG と同じ高さに固定し、行間でレーンが途切れないようにする（30 = ROW_H）。 */
+  height: 30px;
 }
 
 .git-graph-svg {
   flex: 0 0 auto;
+  /* インライン要素のベースライン余白を消し、上下の行の SVG をぴったり接続する。 */
+  display: block;
+  align-self: stretch;
 }
 
 .git-graph-meta {
