@@ -9,12 +9,48 @@ import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import {
+  ChevronDown,
+  ChevronRight,
+  File,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  FileCog,
+  FileImage,
+  FileJson,
+  FileText,
+  FileVideo,
+  Folder,
+  FolderOpen,
+  type LucideIcon,
+} from 'lucide-react';
 import { buildPreviewUrl, joinRel, previewWindowLabel } from './lib/preview';
+import { fileIconKind, type FileIconKind } from './lib/fileIcon';
 
 interface Entry {
   name: string;
   is_dir: boolean;
 }
+
+const ICON_SIZE = 15;
+
+/** アイコン種別 → lucide コンポーネント。markup/style はコード系として扱う。 */
+const KIND_ICON: Readonly<Record<FileIconKind, LucideIcon>> = {
+  code: FileCode,
+  markup: FileCode,
+  style: FileCode,
+  json: FileJson,
+  markdown: FileText,
+  text: FileText,
+  image: FileImage,
+  archive: FileArchive,
+  video: FileVideo,
+  audio: FileAudio,
+  config: FileCog,
+  pdf: FileText,
+  file: File,
+};
 
 async function openPreview(rel: string): Promise<void> {
   const label = previewWindowLabel(rel);
@@ -63,6 +99,9 @@ function TreeNode({ rel, name, isDir, depth }: TreeNodeProps) {
     setOpen((v) => !v);
   };
 
+  const kind = isDir ? null : fileIconKind(name);
+  const FileGlyph = kind ? KIND_ICON[kind] : File;
+
   return (
     <li>
       <button
@@ -71,7 +110,17 @@ function TreeNode({ rel, name, isDir, depth }: TreeNodeProps) {
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
         onClick={onClick}
       >
-        <span className="tree-icon">{isDir ? (open ? '▾' : '▸') : '·'}</span>
+        <span className="tree-twisty">
+          {isDir &&
+            (open ? <ChevronDown size={ICON_SIZE} /> : <ChevronRight size={ICON_SIZE} />)}
+        </span>
+        <span className="tree-icon" data-kind={isDir ? 'folder' : kind}>
+          {isDir ? (
+            open ? <FolderOpen size={ICON_SIZE} /> : <Folder size={ICON_SIZE} />
+          ) : (
+            <FileGlyph size={ICON_SIZE} />
+          )}
+        </span>
         <span className="tree-name">{name}</span>
       </button>
       {error && <div className="tree-error">{error}</div>}

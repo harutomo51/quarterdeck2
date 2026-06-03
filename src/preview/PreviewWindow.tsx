@@ -60,11 +60,13 @@ export function PreviewWindow({ rel }: PreviewWindowProps) {
 
   if (preview.kind === 'markdown') {
     return (
-      <article
-        className="preview preview--markdown"
-        // markdown-it(html:false) が生 HTML をエスケープするため注入は無効化済み。
-        dangerouslySetInnerHTML={{ __html: markdownHtml }}
-      />
+      <div className="preview preview--markdown">
+        <article
+          className="markdown-body"
+          // markdown-it(html:false) が生 HTML をエスケープするため注入は無効化済み。
+          dangerouslySetInnerHTML={{ __html: markdownHtml }}
+        />
+      </div>
     );
   }
 
