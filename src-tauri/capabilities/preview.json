@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "preview",
+  "description": "Preview windows (preview-*): 読み取り表示のみ。core:event だけに絞る。",
+  "windows": ["preview-*"],
+  "permissions": ["core:event:default"]
+}

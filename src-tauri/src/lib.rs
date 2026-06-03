@@ -1,19 +1,26 @@
-// Phase 1: PTY コア。`pty.rs` のコマンドを登録し、状態を PtyState で管理する。
-// Phase 2 で `mod fs_scope;` を追加し、list_dir / read_preview を足していく。
+// Phase 1: PTY コア / Phase 2: ファイルツリー & プレビュー。
+// pty / fs_scope のコマンドを登録し、PtyState / FsRoot を管理する。
 
+mod fs_scope;
 mod pty;
 
+use fs_scope::FsRoot;
 use pty::PtyState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(PtyState::default())
+        .manage(FsRoot::new(
+            std::env::current_dir().expect("cwd を取得できません"),
+        ))
         .invoke_handler(tauri::generate_handler![
             pty::pty_create,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_close,
+            fs_scope::list_dir,
+            fs_scope::read_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

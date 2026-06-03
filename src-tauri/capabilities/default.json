@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core + event（Phase 1: pty:// イベントの listen/emit 用）。Phase 2+ で webview 生成 / updater を追加。",
+  "description": "Main window: core + event + プレビューウィンドウ生成（Phase 2）。Phase 4 で updater を追加。",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default"]
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-set-title"
+  ]
 }
