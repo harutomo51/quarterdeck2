@@ -308,32 +308,34 @@ body {
   font-size: 12px;
 }
 
-.git-graph-list,
 .worktree-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.git-graph-row {
+/* グラフは 1 枚の SVG（左）＋ 同じ行高のテキスト行（右）で整列。継ぎ目を作らない。 */
+.git-graph {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
   padding: 0 12px;
-  /* SVG と同じ高さに固定し、行間でレーンが途切れないようにする（30 = ROW_H）。 */
-  height: 30px;
 }
 
-.git-graph-svg {
-  flex: 0 0 auto;
-  /* インライン要素のベースライン余白を消し、上下の行の SVG をぴったり接続する。 */
+.git-graph-canvas {
   display: block;
-  align-self: stretch;
+  flex: 0 0 auto;
 }
 
-.git-graph-meta {
-  min-width: 0;
+.git-graph-rows {
   flex: 1;
+  min-width: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 8px;
+}
+
+.git-graph-textrow {
+  height: 30px; /* ROW_H と一致させてグラフ行に整列 */
   display: flex;
   align-items: center;
   gap: 6px;

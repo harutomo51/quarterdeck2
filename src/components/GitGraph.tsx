@@ -1,7 +1,8 @@
 /**
  * Git Graph パネル。invoke('git_log') の {root, log} を純粋ロジック（lib/gitGraph）で
- * パース + レーン計算し、各行の入線/出線から **S 字曲線のエッジ** とリングノードを SVG
- * で描く。ブランチごとに列の色で塗り分け、先頭には ref バッジを出す。
+ * パース + レーン計算し、**グラフ全体を 1 枚の SVG** に描く（行ごとに <g> を translate）。
+ * 行を別々の SVG にすると継ぎ目でレーンが途切れるため、必ず単一 SVG にする。
+ * 右側に同じ行高のコミット行（ref バッジ + subject）を並べて整列させる。
  * 更新は「マウント時 / cwd 変更イベント / 手動ボタン」（ADR-0001）。
  */
 import { useCallback, useEffect, useState } from 'react';
@@ -56,7 +57,7 @@ function edgePath(x1: number, y1: number, x2: number, y2: number): string {
   return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
 }
 
-/** 1 行ぶんのエッジ（入線の通過/ノードへの収束 + ノードから親への分岐）を組み立てる。 */
+/** 1 行ぶんのエッジ（入線の通過/ノードへの収束 + ノードから親への分岐）を組み立てる（行ローカル座標）。 */
 function rowEdges(row: GraphRow): Edge[] {
   const edges: Edge[] = [];
   const mid = ROW_H / 2;
@@ -114,6 +115,7 @@ export function GitGraph() {
 
   const lanes = rows ? laneCount(rows) : 1;
   const graphWidth = lanes * LANE_W;
+  const totalHeight = rows ? rows.length * ROW_H : 0;
 
   return (
     <div className="git-panel">
@@ -129,12 +131,18 @@ export function GitGraph() {
       {error && <div className="tree-error">{error}</div>}
       {rows && rows.length === 0 && !error && <div className="git-empty">コミットがありません</div>}
       {rows && rows.length > 0 && (
-        <ul className="git-graph-list">
-          {rows.map((row) => (
-            <li key={row.commit.hash} className="git-graph-row" title={row.commit.subject}>
-              <svg className="git-graph-svg" width={graphWidth} height={ROW_H} aria-hidden="true">
-                {rowEdges(row).map((edge, i) => (
-                  <path key={i} d={edge.d} stroke={edge.color} strokeWidth={2} fill="none" />
+        <div className="git-graph">
+          <svg
+            className="git-graph-canvas"
+            width={graphWidth}
+            height={totalHeight}
+            style={{ flex: `0 0 ${graphWidth}px` }}
+            aria-hidden="true"
+          >
+            {rows.map((row, i) => (
+              <g key={row.commit.hash} transform={`translate(0 ${i * ROW_H})`}>
+                {rowEdges(row).map((edge, j) => (
+                  <path key={j} d={edge.d} stroke={edge.color} strokeWidth={2} fill="none" />
                 ))}
                 <circle
                   cx={xOf(row.column)}
@@ -144,18 +152,22 @@ export function GitGraph() {
                   stroke={laneColor(row.column)}
                   strokeWidth={2.5}
                 />
-              </svg>
-              <div className="git-graph-meta">
+              </g>
+            ))}
+          </svg>
+          <ul className="git-graph-rows">
+            {rows.map((row) => (
+              <li key={row.commit.hash} className="git-graph-textrow" title={row.commit.subject}>
                 {row.commit.refs.map((ref) => (
                   <span key={ref} className={`git-ref git-ref--${refKind(ref)}`}>
                     {refLabel(ref)}
                   </span>
                 ))}
                 <span className="git-subject">{row.commit.subject}</span>
-              </div>
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
