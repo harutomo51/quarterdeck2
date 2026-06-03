@@ -47,7 +47,10 @@ export function TerminalView({ id }: TerminalViewProps) {
       fontFamily: '"Cascadia Code", "Consolas", monospace',
       fontSize: 14,
       cursorBlink: true,
-      theme: { background: '#0f1115', foreground: '#e6e6e6' },
+      // 背景は透過にして、アプリ背景レイヤー（CSS の --bg）を透けさせる。
+      // 透明度は背景のみに当て、文字色 (foreground) には適用しない（CLAUDE.md）。
+      allowTransparency: true,
+      theme: { background: 'rgba(0, 0, 0, 0)', foreground: '#e6e6e6' },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
