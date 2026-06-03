@@ -1,8 +1,8 @@
 /**
  * Git Graph パネル。invoke('git_log') の {root, log} を純粋ロジック（lib/gitGraph）で
- * パース + レーン計算し、SVG のリングドット＋色付き縦線で描画する。先頭には
- * ブランチ/タグの ref バッジ（HEAD→ 黄 / remote 緑 / tag 水 / branch 青）を出す。
- * 更新は「マウント時（=タブアクティブ化）/ cwd 変更イベント / 手動ボタン」（ADR-0001）。
+ * パース + レーン計算し、各行の入線/出線から **S 字曲線のエッジ** とリングノードを SVG
+ * で描く。ブランチごとに列の色で塗り分け、先頭には ref バッジを出す。
+ * 更新は「マウント時 / cwd 変更イベント / 手動ボタン」（ADR-0001）。
  */
 import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -21,14 +21,66 @@ interface GitLog {
   log: string;
 }
 
+interface Edge {
+  d: string;
+  color: string;
+}
+
 const LANE_W = 16;
 const ROW_H = 30;
 const DOT_R = 4.5;
-// レーン 0 はアンバー基調。分岐レーンは色を巡回。
-const LANE_COLORS = ['#e0a82e', '#4cc2ff', '#b18cff', '#4ade80', '#fb7185', '#38bdf8'];
+// レーン（列）ごとの色。列が再利用されても破綻しない範囲で多色化（図に寄せる）。
+const LANE_COLORS = [
+  '#3fb950',
+  '#2dd4bf',
+  '#58a6ff',
+  '#bc8cff',
+  '#f778ba',
+  '#e3a72f',
+  '#ff7b72',
+  '#39c5cf',
+];
 
 function laneColor(col: number): string {
   return LANE_COLORS[col % LANE_COLORS.length];
+}
+
+function xOf(col: number): number {
+  return col * LANE_W + LANE_W / 2;
+}
+
+/** (x1,y1)→(x2,y2) を結ぶパス。同一列は直線、列が違えば縦方向の S 字曲線。 */
+function edgePath(x1: number, y1: number, x2: number, y2: number): string {
+  if (x1 === x2) return `M ${x1} ${y1} L ${x2} ${y2}`;
+  const my = (y1 + y2) / 2;
+  return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+}
+
+/** 1 行ぶんのエッジ（入線の通過/ノードへの収束 + ノードから親への分岐）を組み立てる。 */
+function rowEdges(row: GraphRow): Edge[] {
+  const edges: Edge[] = [];
+  const mid = ROW_H / 2;
+  const nodeX = xOf(row.column);
+
+  row.lanesBefore.forEach((hash, col) => {
+    if (hash === null) return;
+    if (hash === row.commit.hash) {
+      // 上から来たレーンがこのノードへ収束。
+      edges.push({ d: edgePath(xOf(col), 0, nodeX, mid), color: laneColor(row.column) });
+    } else {
+      // 通過レーン。出線側の同じ hash の列へ繋ぐ。
+      const c2 = row.lanesAfter.indexOf(hash);
+      if (c2 !== -1) edges.push({ d: edgePath(xOf(col), 0, xOf(c2), ROW_H), color: laneColor(c2) });
+    }
+  });
+
+  // ノードから各親へ分岐（第1親は同列で直下、追加の親は別列へ曲線）。
+  row.commit.parents.forEach((parent) => {
+    const c2 = row.lanesAfter.indexOf(parent);
+    if (c2 !== -1) edges.push({ d: edgePath(nodeX, mid, xOf(c2), ROW_H), color: laneColor(c2) });
+  });
+
+  return edges;
 }
 
 export function GitGraph() {
@@ -78,45 +130,31 @@ export function GitGraph() {
       {rows && rows.length === 0 && !error && <div className="git-empty">コミットがありません</div>}
       {rows && rows.length > 0 && (
         <ul className="git-graph-list">
-          {rows.map((row) => {
-            const cx = row.column * LANE_W + LANE_W / 2;
-            return (
-              <li key={row.commit.hash} className="git-graph-row" title={row.commit.subject}>
-                <svg className="git-graph-svg" width={graphWidth} height={ROW_H} aria-hidden="true">
-                  {row.lanes.map((laneHash, col) =>
-                    laneHash !== null ? (
-                      <line
-                        key={col}
-                        x1={col * LANE_W + LANE_W / 2}
-                        y1={0}
-                        x2={col * LANE_W + LANE_W / 2}
-                        y2={ROW_H}
-                        stroke={laneColor(col)}
-                        strokeWidth={2}
-                        opacity={0.85}
-                      />
-                    ) : null,
-                  )}
-                  <circle
-                    cx={cx}
-                    cy={ROW_H / 2}
-                    r={DOT_R}
-                    fill="var(--bg-base, #0f1115)"
-                    stroke={laneColor(row.column)}
-                    strokeWidth={2.5}
-                  />
-                </svg>
-                <div className="git-graph-meta">
-                  {row.commit.refs.map((ref) => (
-                    <span key={ref} className={`git-ref git-ref--${refKind(ref)}`}>
-                      {refLabel(ref)}
-                    </span>
-                  ))}
-                  <span className="git-subject">{row.commit.subject}</span>
-                </div>
-              </li>
-            );
-          })}
+          {rows.map((row) => (
+            <li key={row.commit.hash} className="git-graph-row" title={row.commit.subject}>
+              <svg className="git-graph-svg" width={graphWidth} height={ROW_H} aria-hidden="true">
+                {rowEdges(row).map((edge, i) => (
+                  <path key={i} d={edge.d} stroke={edge.color} strokeWidth={2} fill="none" />
+                ))}
+                <circle
+                  cx={xOf(row.column)}
+                  cy={ROW_H / 2}
+                  r={DOT_R}
+                  fill="var(--bg-base, #0f1115)"
+                  stroke={laneColor(row.column)}
+                  strokeWidth={2.5}
+                />
+              </svg>
+              <div className="git-graph-meta">
+                {row.commit.refs.map((ref) => (
+                  <span key={ref} className={`git-ref git-ref--${refKind(ref)}`}>
+                    {refLabel(ref)}
+                  </span>
+                ))}
+                <span className="git-subject">{row.commit.subject}</span>
+              </div>
+            </li>
+          ))}
         </ul>
       )}
     </div>

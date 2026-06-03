@@ -24,8 +24,10 @@ export interface GraphRow {
   commit: Commit;
   /** このコミットが座る列。 */
   column: number;
-  /** この行に入ってくるレーンのスナップショット（列 -> 期待するコミット hash, 空きは null）。 */
-  lanes: (string | null)[];
+  /** 行の上端に入ってくるレーン（列 -> 期待するコミット hash, 空きは null）。 */
+  lanesBefore: (string | null)[];
+  /** 行の下端へ出ていくレーン（次行の lanesBefore と一致）。エッジ描画の接続先。 */
+  lanesAfter: (string | null)[];
 }
 
 /** git log --pretty のフィールド区切り（Unit Separator）。 */
@@ -74,28 +76,22 @@ function firstEmpty(lanes: (string | null)[]): number {
  * 各コミットの列番号と、その行に入ってくるレーン構成を返す。
  */
 export function computeGraph(commits: readonly Commit[]): GraphRow[] {
+  // 出ていくレーン状態（= 次に来るコミットを期待する hash）。次行の入線にもなる。
   const lanes: (string | null)[] = [];
   const rows: GraphRow[] = [];
 
   for (const commit of commits) {
+    // 入線スナップショット（このコミットを処理する前の状態）。新規先端は列を持たない。
+    const lanesBefore = [...lanes];
+
     // このコミットを期待しているレーン（マージ先で複数になりうる）。
     const converging: number[] = [];
     for (let i = 0; i < lanes.length; i += 1) {
       if (lanes[i] === commit.hash) converging.push(i);
     }
 
-    let column: number;
-    if (converging.length > 0) {
-      column = converging[0];
-    } else {
-      // どのレーンも待っていない = 新しいブランチ先端。空きレーンへ。
-      column = firstEmpty(lanes);
-      lanes[column] = commit.hash;
-      converging.push(column);
-    }
-
-    // 入線スナップショット（親を反映する前の状態）。
-    const lanesBefore = [...lanes];
+    // 収束レーンの最左に座る。無ければ新しいブランチ先端として空きレーンへ。
+    const column = converging.length > 0 ? converging[0] : firstEmpty(lanes);
 
     // 第1親はこのコミットの列を継承。
     lanes[column] = commit.parents[0] ?? null;
@@ -107,10 +103,10 @@ export function computeGraph(commits: readonly Commit[]): GraphRow[] {
     for (let p = 1; p < commit.parents.length; p += 1) {
       lanes[firstEmpty(lanes)] = commit.parents[p];
     }
-    // 末尾の空きレーンを詰める。
+    // 末尾の空きレーンを詰める（列インデックスは保つので接続には影響しない）。
     while (lanes.length > 0 && lanes[lanes.length - 1] === null) lanes.pop();
 
-    rows.push({ commit, column, lanes: lanesBefore });
+    rows.push({ commit, column, lanesBefore, lanesAfter: [...lanes] });
   }
 
   return rows;
@@ -120,7 +116,7 @@ export function computeGraph(commits: readonly Commit[]): GraphRow[] {
 export function laneCount(rows: readonly GraphRow[]): number {
   let max = 1;
   for (const r of rows) {
-    max = Math.max(max, r.lanes.length, r.column + 1);
+    max = Math.max(max, r.lanesBefore.length, r.lanesAfter.length, r.column + 1);
   }
   return max;
 }
