@@ -2,6 +2,7 @@
   "name": "quarterdeck",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Windows 11 PowerShell-compatible custom terminal MVP (Tauri 2 backend).",
   "type": "module",
   "scripts": {

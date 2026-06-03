@@ -99,3 +99,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml   # lint
 - [`docs/DESIGN.md`](docs/DESIGN.md) — デザインシステム（Markdown プレビューの意匠の基準）
 - [`docs/adr/`](docs/adr/) — アーキテクチャ決定記録
 - [`CLAUDE.md`](CLAUDE.md) — リポジトリ内での開発ガイダンス
+
+## ライセンス
+
+[MIT License](LICENSE) © 2026 Tatsuya Miyazaki
