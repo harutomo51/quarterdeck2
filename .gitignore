@@ -19,5 +19,8 @@ yarn-error.log*
 src-tauri/target/
 src-tauri/gen/
 
+# Updater signing keys (NEVER commit the private key)
+.tauri/
+
 # Cloned upstream Electron source (流用元の作業コピー)
 /_qd-src/

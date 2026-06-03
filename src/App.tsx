@@ -2,15 +2,21 @@
  * Phase 1〜3: タイトルバー（外観設定トグル）+ ファイルツリー + ターミナル。
  * 外観は useAppearance が CSS カスタムプロパティに反映する。
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TerminalView } from './Terminal';
 import { FileTree } from './FileTree';
 import { SettingsPanel } from './components/SettingsPanel';
 import { useAppearance } from './hooks/useAppearance';
+import { checkForUpdates } from './lib/updater';
 
 export default function App() {
   const { settings, update } = useAppearance();
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // 起動時に一度だけ更新チェック（失敗してもアプリは継続）。
+  useEffect(() => {
+    void checkForUpdates();
+  }, []);
 
   return (
     <div className="app-shell">
