@@ -5,8 +5,9 @@
  * クリックで展開、ファイルはクリックでプレビューウィンドウ（preview-*）を開く。
  * スコープ強制は Rust 側 resolve_within が担保するので、ここは表示と橋渡しのみ。
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { buildPreviewUrl, joinRel, previewWindowLabel } from './lib/preview';
 
@@ -94,12 +95,29 @@ function TreeNode({ rel, name, isDir, depth }: TreeNodeProps) {
 export function FileTree() {
   const [roots, setRoots] = useState<Entry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // cwd 追従で根が切り替わるたびに増やし、配下ノードを remount して展開状態を破棄する。
+  const [epoch, setEpoch] = useState(0);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     invoke<Entry[]>('list_dir', {})
-      .then(setRoots)
+      .then((items) => {
+        setRoots(items);
+        setError(null);
+      })
       .catch((e) => setError(String(e)));
   }, []);
+
+  useEffect(() => {
+    load();
+    // ターミナルの cwd が動いたら根を再取得（FsRoot は Rust 側で追従済み）。
+    const un = listen('fs://cwd', () => {
+      setEpoch((n) => n + 1);
+      load();
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  }, [load]);
 
   return (
     <nav className="file-tree" aria-label="ファイルツリー">
@@ -107,7 +125,7 @@ export function FileTree() {
       {error && <div className="tree-error">{error}</div>}
       <ul className="tree-list">
         {roots.map((e) => (
-          <TreeNode key={e.name} rel={e.name} name={e.name} isDir={e.is_dir} depth={0} />
+          <TreeNode key={`${epoch}:${e.name}`} rel={e.name} name={e.name} isDir={e.is_dir} depth={0} />
         ))}
       </ul>
     </nav>

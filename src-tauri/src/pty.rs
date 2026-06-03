@@ -1,22 +1,30 @@
-//! PTY コア（Phase 1）。
+//! PTY コア（Phase 1）+ cwd 追従（ADR-0001）。
 //!
 //! `node-pty` 相当を `portable-pty` で実装する。reader はブロッキングなので
 //! 別スレッドで回し、出力は base64 にして `pty://data` イベントで renderer へ送る
-//! （マルチバイト境界の分割に強い）。状態は `id -> PtySession` の `HashMap` で持ち、
-//! 将来の「タブごとの PTY 管理」へそのまま伸ばせる。
+//! （マルチバイト境界の分割に強い）。状態は `id -> PtySession` の `HashMap` で持つ。
 //!
 //! シェルは PowerShell 7（`pwsh`）優先、無ければ `powershell.exe` にフォールバックし、
 //! **他のシェルは許可しない**（CLAUDE.md の変更ルール）。
+//!
+//! cwd 追従（ADR-0001）: spawn 時に `-NoExit -Command` で既存 `prompt` をラップし、
+//! 毎プロンプトで OSC 9;9 として `$PWD` を吐かせる。reader が**信頼できる PTY
+//! ストリーム**から cwd を抽出して `FsRoot` を更新し、`fs://cwd` を emit する。
+//! バイト列は xterm にそのまま流す（未知 OSC は xterm 側で無視される）。
+//! `powershell.exe` 5.1 でも動くよう、エスケープは `[char]27` で組む（`` `e `` 不可）。
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::Mutex;
 use std::thread;
 
 use base64::Engine;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+use crate::fs_scope::FsRoot;
 
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
@@ -40,6 +48,17 @@ struct PtyExit {
     id: String,
 }
 
+#[derive(Clone, Serialize)]
+struct CwdChanged {
+    path: String,
+}
+
+/// 各プロンプトで OSC 9;9（`ESC ] 9 ; 9 ; <cwd> BEL`）を吐くよう `prompt` をラップする
+/// 注入スクリプト。profile ロード後に実行されるため、ユーザー既存 prompt を捕捉して
+/// 最後に呼ぶ（壊さない）。`$LASTEXITCODE` を保存・復元し、エスケープは `[char]` で
+/// 組んで pwsh / powershell.exe 5.1 双方で動かす。二重引用符は使わない（引数クォート単純化）。
+const PROMPT_INJECT: &str = "$global:__qd_op=$function:prompt; function global:prompt { $__qd_l=$LASTEXITCODE; $p=(Get-Location).ProviderPath; [Console]::Write([char]27 + ']9;9;' + $p + [char]7); $global:LASTEXITCODE=$__qd_l; if($global:__qd_op){ & $global:__qd_op } else { 'PS ' + $p + '> ' } }";
+
 /// 起動するシェルの実行ファイル名を決める。
 ///
 /// 副作用（`which` 探索）と分離してテスト可能にするための純粋関数。
@@ -56,11 +75,92 @@ fn shell_program(pwsh_available: bool) -> &'static str {
 fn resolve_shell() -> CommandBuilder {
     let prog = shell_program(which::which("pwsh").is_ok());
     let mut cmd = CommandBuilder::new(prog);
-    // 起動ディレクトリを引き継ぐ（FsRoot の基準と一致させる）。
+    // prompt をラップして OSC 9;9 を吐かせつつ、対話 REPL を維持（-NoExit）。
+    cmd.arg("-NoExit");
+    cmd.arg("-Command");
+    cmd.arg(PROMPT_INJECT);
+    // 起動ディレクトリを引き継ぐ（FsRoot の初期基準と一致させる）。
     if let Ok(cwd) = std::env::current_dir() {
         cmd.cwd(cwd);
     }
     cmd
+}
+
+const OSC_PREFIX: &[u8] = b"\x1b]9;9;";
+
+fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// OSC 終端（BEL=0x07 か ST=`ESC \`）を探し、(開始位置, 終端長) を返す。
+/// 末尾に途中の ESC が残る場合は未完として None。
+fn find_terminator(b: &[u8]) -> Option<(usize, usize)> {
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            0x07 => return Some((i, 1)),
+            0x1b => {
+                if i + 1 >= b.len() {
+                    return None; // ST 途中。続きを待つ。
+                }
+                if b[i + 1] == 0x5c {
+                    return Some((i, 2));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn keep_tail(buf: &mut Vec<u8>, k: usize) {
+    if buf.len() > k {
+        let cut = buf.len() - k;
+        buf.drain(..cut);
+    }
+}
+
+/// `chunk`（前回の残り `carry` に連結）から OSC 9;9 の cwd を抽出する。
+///
+/// 完結したシーケンスのうち**最後の** cwd を返す。未完の途中シーケンスは `carry` に残し、
+/// 次の read と合わせて再評価する（チャンク境界での分割に強い）。`carry` はメモリ上限を持つ。
+fn extract_cwd(carry: &mut Vec<u8>, chunk: &[u8]) -> Option<String> {
+    carry.extend_from_slice(chunk);
+    let mut result: Option<String> = None;
+
+    loop {
+        let Some(start) = find_subslice(carry, OSC_PREFIX) else {
+            // プレフィックスが分割されている可能性に備え、末尾だけ残す。
+            keep_tail(carry, OSC_PREFIX.len().saturating_sub(1));
+            break;
+        };
+        let after = start + OSC_PREFIX.len();
+        match find_terminator(&carry[after..]) {
+            Some((end, term_len)) => {
+                if let Ok(s) = std::str::from_utf8(&carry[after..after + end]) {
+                    if !s.is_empty() {
+                        result = Some(s.to_string());
+                    }
+                }
+                let consumed = after + end + term_len;
+                carry.drain(..consumed);
+            }
+            None => {
+                // 未完。start 以前は捨ててメモリを抑え、続きを待つ。
+                carry.drain(..start);
+                if carry.len() > 8192 {
+                    carry.clear();
+                }
+                break;
+            }
+        }
+    }
+
+    result
 }
 
 #[tauri::command]
@@ -95,6 +195,7 @@ pub fn pty_create(
     let id_t = id.clone();
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        let mut carry: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => {
@@ -102,6 +203,7 @@ pub fn pty_create(
                     break;
                 }
                 Ok(n) => {
+                    // バイト列はそのまま xterm へ流す（OSC を含め未加工）。
                     let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
                     let _ = app_t.emit(
                         "pty://data",
@@ -110,6 +212,13 @@ pub fn pty_create(
                             data,
                         },
                     );
+                    // 信頼できる PTY ストリームから cwd を抽出し、FsRoot を追従させる。
+                    if let Some(cwd) = extract_cwd(&mut carry, &buf[..n]) {
+                        let fs = app_t.state::<FsRoot>();
+                        if fs.set(Path::new(&cwd)) {
+                            let _ = app_t.emit("fs://cwd", CwdChanged { path: cwd });
+                        }
+                    }
                 }
             }
         }
@@ -171,7 +280,7 @@ pub fn pty_close(id: String, state: State<PtyState>) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::shell_program;
+    use super::{extract_cwd, shell_program};
 
     #[test]
     fn prefers_pwsh_when_available() {
@@ -181,5 +290,45 @@ mod tests {
     #[test]
     fn falls_back_to_windows_powershell_when_pwsh_absent() {
         assert_eq!(shell_program(false), "powershell.exe");
+    }
+
+    #[test]
+    fn extracts_cwd_from_a_bel_terminated_osc() {
+        let mut carry = Vec::new();
+        let input = b"some output\x1b]9;9;C:\\dev\\quarterdeck\x07PS> ";
+        assert_eq!(
+            extract_cwd(&mut carry, input),
+            Some("C:\\dev\\quarterdeck".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_cwd_from_an_st_terminated_osc() {
+        let mut carry = Vec::new();
+        let input = b"\x1b]9;9;/home/u\x1b\\rest";
+        assert_eq!(extract_cwd(&mut carry, input), Some("/home/u".to_string()));
+    }
+
+    #[test]
+    fn returns_the_last_cwd_when_multiple_present() {
+        let mut carry = Vec::new();
+        let input = b"\x1b]9;9;A\x07\x1b]9;9;B\x07";
+        assert_eq!(extract_cwd(&mut carry, input), Some("B".to_string()));
+    }
+
+    #[test]
+    fn reassembles_a_sequence_split_across_chunks() {
+        let mut carry = Vec::new();
+        assert_eq!(extract_cwd(&mut carry, b"\x1b]9;9;C:\\de"), None);
+        assert_eq!(
+            extract_cwd(&mut carry, b"v\x07"),
+            Some("C:\\dev".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_a_stream_without_osc() {
+        let mut carry = Vec::new();
+        assert_eq!(extract_cwd(&mut carry, b"plain text, no escape"), None);
     }
 }

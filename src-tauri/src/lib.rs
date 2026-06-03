@@ -1,7 +1,8 @@
-// Phase 1: PTY コア / Phase 2: ファイルツリー & プレビュー。
-// pty / fs_scope のコマンドを登録し、PtyState / FsRoot を管理する。
+// Phase 1: PTY コア / Phase 2: ファイルツリー & プレビュー / Git Graph・Worktree。
+// pty / fs_scope / git のコマンドを登録し、PtyState / FsRoot を管理する。
 
 mod fs_scope;
+mod git;
 mod pty;
 
 use fs_scope::FsRoot;
@@ -22,6 +23,8 @@ pub fn run() {
             pty::pty_close,
             fs_scope::list_dir,
             fs_scope::read_preview,
+            git::git_log,
+            git::git_worktree_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

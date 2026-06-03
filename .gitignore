@@ -24,3 +24,5 @@ src-tauri/gen/
 
 # Cloned upstream Electron source (流用元の作業コピー)
 /_qd-src/
+
+.claude/

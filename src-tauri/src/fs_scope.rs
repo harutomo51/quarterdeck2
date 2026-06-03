@@ -1,27 +1,49 @@
-//! ファイル一覧 / プレビュー（Phase 2）。
+//! ファイル一覧 / プレビュー（Phase 2）+ cwd 追従の可動境界（ADR-0001）。
 //!
 //! preload 経由の限定 API を、スコープ強制つきの Rust コマンドに置換する。
 //! `canonicalize` でシンボリックリンクや `..` を解決した上で、`FsRoot` 配下から
 //! 外れたら拒否する（= コマンド内部がスコープ強制の信頼境界。CLAUDE.md の変更ルール）。
+//!
+//! `FsRoot` は固定ではなく **ターミナルの live cwd に追従する可動境界**（ADR-0001）。
+//! pty の reader が OSC 9;9 から抽出した cwd で `set` され、`resolve_within` の基準が
+//! 追従する。不変条件「常に現在フォルダ配下のみ許可」は保つ。
 //!
 //! - `list_dir`: `FsRoot` 配下のディレクトリを 1 階層列挙（EXCLUDE で間引く）。
 //! - `read_preview`: 1MB 以下のファイルを読み、拡張子で md/html/code を出し分ける。
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::Serialize;
 use tauri::State;
 
 pub struct FsRoot {
-    pub root: PathBuf,
+    root: Mutex<PathBuf>,
 }
 
 impl FsRoot {
     pub fn new(root: PathBuf) -> Self {
         // canonicalize しておき、以降の starts_with 判定の基準を正規化済みに揃える。
         Self {
-            root: root.canonicalize().unwrap_or(root),
+            root: Mutex::new(root.canonicalize().unwrap_or(root)),
+        }
+    }
+
+    /// 現在のスコープ基準（クローンを返す）。
+    pub fn current(&self) -> PathBuf {
+        self.root.lock().expect("FsRoot poisoned").clone()
+    }
+
+    /// 新しい cwd を採用する。`canonicalize` 成功かつディレクトリのときだけ更新し、
+    /// 採用したら true。実在しない / ファイルなら無視して false（degrade）。
+    pub fn set(&self, path: &Path) -> bool {
+        match path.canonicalize() {
+            Ok(canon) if canon.is_dir() => {
+                *self.root.lock().expect("FsRoot poisoned") = canon;
+                true
+            }
+            _ => false,
         }
     }
 }
@@ -49,9 +71,10 @@ fn resolve_within(root: &Path, rel: &str) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub fn list_dir(rel: Option<String>, state: State<FsRoot>) -> Result<Vec<Entry>, String> {
+    let root = state.current();
     let dir = match rel {
-        Some(r) if !r.is_empty() => resolve_within(&state.root, &r)?,
-        _ => state.root.clone(),
+        Some(r) if !r.is_empty() => resolve_within(&root, &r)?,
+        _ => root.clone(),
     };
     let mut out = Vec::new();
     for e in fs::read_dir(&dir).map_err(|e| e.to_string())? {
@@ -76,7 +99,8 @@ pub struct Preview {
 
 #[tauri::command]
 pub fn read_preview(rel: String, state: State<FsRoot>) -> Result<Preview, String> {
-    let path = resolve_within(&state.root, &rel)?;
+    let root = state.current();
+    let path = resolve_within(&root, &rel)?;
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_PREVIEW_BYTES {
         return Err("file exceeds 1MB preview limit".into());
     }
@@ -92,7 +116,7 @@ pub fn read_preview(rel: String, state: State<FsRoot>) -> Result<Preview, String
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_within;
+    use super::{resolve_within, FsRoot};
     use std::fs;
     use tempfile::tempdir;
 
@@ -138,5 +162,28 @@ mod tests {
         // canonicalize は実在しないパスで失敗する（= 存在しないものは読ませない）。
         let result = resolve_within(&root, "does-not-exist.txt");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn set_moves_the_boundary_to_an_existing_dir() {
+        let dir = tempdir().unwrap();
+        let start = dir.path().join("start");
+        let moved = dir.path().join("moved");
+        fs::create_dir(&start).unwrap();
+        fs::create_dir(&moved).unwrap();
+
+        let root = FsRoot::new(start.clone());
+        assert!(root.set(&moved));
+        assert_eq!(root.current(), moved.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn set_ignores_nonexistent_path() {
+        let dir = tempdir().unwrap();
+        let start = dir.path().canonicalize().unwrap();
+        let root = FsRoot::new(start.clone());
+
+        assert!(!root.set(&dir.path().join("does-not-exist")));
+        assert_eq!(root.current(), start);
     }
 }
