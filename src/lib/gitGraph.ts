@@ -20,13 +20,25 @@ export interface Commit {
   subject: string;
 }
 
+/** 行内の 1 本のエッジ。座標は「列」と「行内縦位置（0=上端, 0.5=ノード, 1=下端）」で持つ。 */
+export interface GraphEdge {
+  fromCol: number;
+  toCol: number;
+  y1: number;
+  y2: number;
+  /** 色に使う列インデックス（laneColor の引数）。 */
+  colorCol: number;
+}
+
 export interface GraphRow {
   commit: Commit;
   /** このコミットが座る列。 */
   column: number;
-  /** 行の上端に入ってくるレーン（列 -> 期待するコミット hash, 空きは null）。 */
+  /** この行に描くエッジ（通過/ノードへの収束/ノードから親への分岐）。列が確定済みなので連続する。 */
+  edges: GraphEdge[];
+  /** 行の上端に入ってくるレーン（列 -> 期待するコミット hash, 空きは null）。幅算出/継続性の基準。 */
   lanesBefore: (string | null)[];
-  /** 行の下端へ出ていくレーン（次行の lanesBefore と一致）。エッジ描画の接続先。 */
+  /** 行の下端へ出ていくレーン（次行の lanesBefore と一致）。 */
   lanesAfter: (string | null)[];
 }
 
@@ -93,20 +105,41 @@ export function computeGraph(commits: readonly Commit[]): GraphRow[] {
     // 収束レーンの最左に座る。無ければ新しいブランチ先端として空きレーンへ。
     const column = converging.length > 0 ? converging[0] : firstEmpty(lanes);
 
-    // 第1親はこのコミットの列を継承。
-    lanes[column] = commit.parents[0] ?? null;
-    // 収束した他レーンはここで閉じる。
-    for (const ci of converging) {
-      if (ci !== column) lanes[ci] = null;
-    }
-    // 追加の親（マージ）は新しいレーンへ。
-    for (let p = 1; p < commit.parents.length; p += 1) {
-      lanes[firstEmpty(lanes)] = commit.parents[p];
-    }
+    // 収束した全レーンを一旦閉じる（あとで親を置き直す）。
+    for (const ci of converging) lanes[ci] = null;
+
+    // 親を列に割り当てる。既に同じ親を待つレーンがあれば**再利用**（重複レーンを作らない）。
+    const parentCols: number[] = [];
+    commit.parents.forEach((parent, idx) => {
+      let pc = lanes.indexOf(parent);
+      if (pc === -1) {
+        pc = idx === 0 ? column : firstEmpty(lanes);
+        lanes[pc] = parent;
+      }
+      parentCols.push(pc);
+    });
+
     // 末尾の空きレーンを詰める（列インデックスは保つので接続には影響しない）。
     while (lanes.length > 0 && lanes[lanes.length - 1] === null) lanes.pop();
 
-    rows.push({ commit, column, lanesBefore, lanesAfter: [...lanes] });
+    // エッジを列確定済みで組み立てる（レンダラでの indexOf 推測を排し、重複ハッシュでも欠落しない）。
+    const edges: GraphEdge[] = [];
+    lanesBefore.forEach((hash, c) => {
+      if (hash === null) return;
+      if (hash === commit.hash) {
+        // 上から来たレーンがノードへ収束（上端 -> ノード）。
+        edges.push({ fromCol: c, toCol: column, y1: 0, y2: 0.5, colorCol: column });
+      } else {
+        // 通過レーンは同じ列を維持（上端 -> 下端の直線）。
+        edges.push({ fromCol: c, toCol: c, y1: 0, y2: 1, colorCol: c });
+      }
+    });
+    // ノードから各親へ（ノード -> 下端）。
+    parentCols.forEach((pc) => {
+      edges.push({ fromCol: column, toCol: pc, y1: 0.5, y2: 1, colorCol: pc });
+    });
+
+    rows.push({ commit, column, edges, lanesBefore, lanesAfter: [...lanes] });
   }
 
   return rows;

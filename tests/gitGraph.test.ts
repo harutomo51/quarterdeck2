@@ -58,6 +58,33 @@ describe('computeGraph', () => {
     expect(laneCount(rows)).toBe(1);
   });
 
+  test('every entering and leaving lane has a connected edge (no gaps)', () => {
+    // 同じ親(base)を2レーンが待つ分岐は重複レーンを作らず、全レーンが接続される。
+    const rows = computeGraph([
+      commit('M', ['A', 'B']),
+      commit('A', ['base']),
+      commit('B', ['base']),
+      commit('base', []),
+    ]);
+    for (const row of rows) {
+      // 出ていく各レーンには下端(y2=1)へ到達するエッジがある。
+      row.lanesAfter.forEach((hash, col) => {
+        if (hash === null) return;
+        expect(row.edges.some((e) => e.y2 === 1 && e.toCol === col)).toBe(true);
+      });
+      // 入ってくる各レーンには上端(y1=0)から出るエッジがある。
+      row.lanesBefore.forEach((hash, col) => {
+        if (hash === null) return;
+        expect(row.edges.some((e) => e.y1 === 0 && e.fromCol === col)).toBe(true);
+      });
+    }
+    // 重複ハッシュのレーンが生成されていないこと。
+    for (const row of rows) {
+      const present = row.lanesAfter.filter((h): h is string => h !== null);
+      expect(new Set(present).size).toBe(present.length);
+    }
+  });
+
   test('assigns a second lane for a branch and converges on merge-base', () => {
     // M is a merge of A and B; A and B both descend from base.
     const rows = computeGraph([

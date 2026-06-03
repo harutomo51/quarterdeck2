@@ -22,11 +22,6 @@ interface GitLog {
   log: string;
 }
 
-interface Edge {
-  d: string;
-  color: string;
-}
-
 const LANE_W = 16;
 const ROW_H = 30;
 const DOT_R = 4.5;
@@ -50,38 +45,15 @@ function xOf(col: number): number {
   return col * LANE_W + LANE_W / 2;
 }
 
-/** (x1,y1)→(x2,y2) を結ぶパス。同一列は直線、列が違えば縦方向の S 字曲線。 */
-function edgePath(x1: number, y1: number, x2: number, y2: number): string {
+/** 列・行内縦位置(0..1) を画素座標のパスへ。同一列は直線、列が違えば縦方向の S 字曲線。 */
+function edgePath(fromCol: number, y1f: number, toCol: number, y2f: number): string {
+  const x1 = xOf(fromCol);
+  const x2 = xOf(toCol);
+  const y1 = y1f * ROW_H;
+  const y2 = y2f * ROW_H;
   if (x1 === x2) return `M ${x1} ${y1} L ${x2} ${y2}`;
   const my = (y1 + y2) / 2;
   return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
-}
-
-/** 1 行ぶんのエッジ（入線の通過/ノードへの収束 + ノードから親への分岐）を組み立てる（行ローカル座標）。 */
-function rowEdges(row: GraphRow): Edge[] {
-  const edges: Edge[] = [];
-  const mid = ROW_H / 2;
-  const nodeX = xOf(row.column);
-
-  row.lanesBefore.forEach((hash, col) => {
-    if (hash === null) return;
-    if (hash === row.commit.hash) {
-      // 上から来たレーンがこのノードへ収束。
-      edges.push({ d: edgePath(xOf(col), 0, nodeX, mid), color: laneColor(row.column) });
-    } else {
-      // 通過レーン。出線側の同じ hash の列へ繋ぐ。
-      const c2 = row.lanesAfter.indexOf(hash);
-      if (c2 !== -1) edges.push({ d: edgePath(xOf(col), 0, xOf(c2), ROW_H), color: laneColor(c2) });
-    }
-  });
-
-  // ノードから各親へ分岐（第1親は同列で直下、追加の親は別列へ曲線）。
-  row.commit.parents.forEach((parent) => {
-    const c2 = row.lanesAfter.indexOf(parent);
-    if (c2 !== -1) edges.push({ d: edgePath(nodeX, mid, xOf(c2), ROW_H), color: laneColor(c2) });
-  });
-
-  return edges;
 }
 
 export function GitGraph() {
@@ -141,8 +113,14 @@ export function GitGraph() {
           >
             {rows.map((row, i) => (
               <g key={row.commit.hash} transform={`translate(0 ${i * ROW_H})`}>
-                {rowEdges(row).map((edge, j) => (
-                  <path key={j} d={edge.d} stroke={edge.color} strokeWidth={2} fill="none" />
+                {row.edges.map((edge, j) => (
+                  <path
+                    key={j}
+                    d={edgePath(edge.fromCol, edge.y1, edge.toCol, edge.y2)}
+                    stroke={laneColor(edge.colorCol)}
+                    strokeWidth={2}
+                    fill="none"
+                  />
                 ))}
                 <circle
                   cx={xOf(row.column)}
