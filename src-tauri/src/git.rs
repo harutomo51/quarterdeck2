@@ -22,10 +22,19 @@ pub struct GitLog {
 
 /// `cwd` を起点に固定引数の git を実行し、stdout を返す。非ゼロ終了は stderr を Err に。
 fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .args(args)
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(cwd).args(args);
+
+    // Windows では git のサブプロセス起動ごとにコンソールウィンドウが一瞬表示され、
+    // Git Graph / Worktree タブを開くたびに画面がちらつく。CREATE_NO_WINDOW を付けて抑止する。
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let out = cmd
         .output()
         .map_err(|e| format!("failed to run git: {e}"))?;
     if !out.status.success() {
