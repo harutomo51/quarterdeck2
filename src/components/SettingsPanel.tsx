@@ -3,6 +3,7 @@
  * 値の正規化は lib/appearance.ts に委譲し、ここは入力 UI のみ。
  * レイアウトは行ベース（アイコン + ラベル + 値）。
  */
+import { useState } from 'react';
 import {
   ALPHA_MAX,
   ALPHA_MIN,
@@ -10,17 +11,53 @@ import {
   nextPresetId,
   type AppearanceSettings,
 } from '../lib/appearance';
+import { chordFromEvent, type Keybindings, type PaneAction } from '../lib/keybindings';
 
 interface SettingsPanelProps {
   settings: AppearanceSettings;
   onChange: (patch: Partial<AppearanceSettings>) => void;
+  bindings: Keybindings;
+  onBindingsChange: (patch: Partial<Keybindings>) => void;
+  onBindingsReset: () => void;
   onClose: () => void;
 }
 
 const ALPHA_STEP = 0.05;
 
-export function SettingsPanel({ settings, onChange, onClose }: SettingsPanelProps) {
+const KEYBINDING_LABELS: Record<PaneAction, string> = {
+  'split-vertical': '垂直分割（左右）',
+  'split-horizontal': '水平分割（上下）',
+  'close-pane': 'ペインを閉じる',
+  'focus-up': 'フォーカス: 上',
+  'focus-down': 'フォーカス: 下',
+  'focus-left': 'フォーカス: 左',
+  'focus-right': 'フォーカス: 右',
+};
+
+const KEYBINDING_ORDER = Object.keys(KEYBINDING_LABELS) as PaneAction[];
+
+export function SettingsPanel({
+  settings,
+  onChange,
+  bindings,
+  onBindingsChange,
+  onBindingsReset,
+  onClose,
+}: SettingsPanelProps) {
   const preset = findPreset(settings.presetId);
+  const [capturing, setCapturing] = useState<PaneAction | null>(null);
+
+  const captureChord = (action: PaneAction, e: React.KeyboardEvent) => {
+    e.preventDefault();
+    // 修飾キー単独は確定させない（次の実キー押下を待つ）。
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+    if (e.key === 'Escape') {
+      setCapturing(null);
+      return;
+    }
+    onBindingsChange({ [action]: chordFromEvent(e) });
+    setCapturing(null);
+  };
 
   return (
     <div className="settings-panel" role="dialog" aria-label="Appearance">
@@ -104,6 +141,37 @@ export function SettingsPanel({ settings, onChange, onClose }: SettingsPanelProp
         />
         <span className="settings-row-value">{Math.round(settings.bgAlpha * 100)}%</span>
       </div>
+
+      {/* キーバインド: 行クリックでキャプチャ→次のキー押下で確定（Esc で取消） */}
+      <div className="settings-section-head">
+        <span className="settings-row-icon" aria-hidden="true">
+          <KeyboardIcon />
+        </span>
+        <span className="settings-row-label">Keybindings</span>
+        <button
+          type="button"
+          className="settings-reset"
+          onClick={onBindingsReset}
+          title="既定値に戻す"
+        >
+          Reset
+        </button>
+      </div>
+      {KEYBINDING_ORDER.map((action) => (
+        <div className="settings-row settings-row--key" key={action}>
+          <span className="settings-keybind-label">{KEYBINDING_LABELS[action]}</span>
+          <button
+            type="button"
+            className="settings-keybind-chord"
+            aria-pressed={capturing === action}
+            onClick={() => setCapturing(action)}
+            onBlur={() => setCapturing((c) => (c === action ? null : c))}
+            onKeyDown={(e) => (capturing === action ? captureChord(action, e) : undefined)}
+          >
+            {capturing === action ? 'キーを押す…' : bindings[action]}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -164,6 +232,15 @@ function CloseIcon() {
   return (
     <svg {...ICON_PROPS}>
       <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function KeyboardIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" />
     </svg>
   );
 }

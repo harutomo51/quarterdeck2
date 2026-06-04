@@ -39,6 +39,7 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_close,
+            pty::pty_focus,
             fs_scope::list_dir,
             fs_scope::read_preview,
             git::git_log,

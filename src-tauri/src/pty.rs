@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
 
@@ -35,6 +35,10 @@ pub struct PtySession {
 #[derive(Default)]
 pub struct PtyState {
     pub sessions: Mutex<HashMap<String, PtySession>>,
+    /// id ごとの最後に観測した cwd（ADR-0002: FsRoot 追従元と新ペイン継承の源）。
+    pub cwds: Mutex<HashMap<String, PathBuf>>,
+    /// 今フォーカス中の Pane の id（FsRoot を駆動する 1 枚）。
+    pub focused: Mutex<Option<String>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -72,16 +76,29 @@ fn shell_program(pwsh_available: bool) -> &'static str {
     }
 }
 
-fn resolve_shell() -> CommandBuilder {
+fn resolve_shell(cwd: PathBuf) -> CommandBuilder {
     let prog = shell_program(which::which("pwsh").is_ok());
     let mut cmd = CommandBuilder::new(prog);
     // prompt をラップして OSC 9;9 を吐かせつつ、対話 REPL を維持（-NoExit）。
     cmd.arg("-NoExit");
     cmd.arg("-Command");
     cmd.arg(PROMPT_INJECT);
-    // 起動ディレクトリを FsRoot の初期基準（ユーザープロファイルルート）と一致させる。
-    cmd.cwd(crate::initial_dir());
+    // 起動ディレクトリ（ADR-0002: 分割時は継承元 cwd、それ以外は initial_dir）。
+    cmd.cwd(cwd);
     cmd
+}
+
+/// 新ペインの spawn 先 cwd を選ぶ（ADR-0002）。継承元 cwd があればそれ、無ければ fallback。
+fn spawn_cwd(inherited: Option<PathBuf>, fallback: PathBuf) -> PathBuf {
+    inherited.unwrap_or(fallback)
+}
+
+/// フォーカス中ペインの cwd を引く（ADR-0002 の FsRoot 追従元）。
+fn focused_cwd<'a>(
+    cwds: &'a HashMap<String, PathBuf>,
+    focused: Option<&str>,
+) -> Option<&'a PathBuf> {
+    focused.and_then(|id| cwds.get(id))
 }
 
 const OSC_PREFIX: &[u8] = b"\x1b]9;9;";
@@ -166,9 +183,20 @@ pub fn pty_create(
     id: String,
     cols: u16,
     rows: u16,
+    inherit_cwd_from: Option<String>,
     app: AppHandle,
     state: State<PtyState>,
 ) -> Result<(), String> {
+    // 継承元（Focused Pane）の cwd を id 経由で引く（ADR-0002: renderer はパスを渡さない）。
+    let inherited = inherit_cwd_from.and_then(|from| {
+        state
+            .cwds
+            .lock()
+            .ok()
+            .and_then(|cwds| cwds.get(&from).cloned())
+    });
+    let cwd = spawn_cwd(inherited, crate::initial_dir());
+
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -181,7 +209,7 @@ pub fn pty_create(
 
     let child = pair
         .slave
-        .spawn_command(resolve_shell())
+        .spawn_command(resolve_shell(cwd))
         .map_err(|e| e.to_string())?;
     drop(pair.slave); // master が EOF を受け取れるよう slave は破棄
 
@@ -210,11 +238,23 @@ pub fn pty_create(
                             data,
                         },
                     );
-                    // 信頼できる PTY ストリームから cwd を抽出し、FsRoot を追従させる。
+                    // 信頼できる PTY ストリームから cwd を抽出（ADR-0002）。id ごとに
+                    // 保持し、**フォーカス中ペインのときだけ** FsRoot を追従させる。
                     if let Some(cwd) = extract_cwd(&mut carry, &buf[..n]) {
-                        let fs = app_t.state::<FsRoot>();
-                        if fs.set(Path::new(&cwd)) {
-                            let _ = app_t.emit("fs://cwd", CwdChanged { path: cwd });
+                        let pty_state = app_t.state::<PtyState>();
+                        if let Ok(mut cwds) = pty_state.cwds.lock() {
+                            cwds.insert(id_t.clone(), PathBuf::from(&cwd));
+                        }
+                        let is_focused = pty_state
+                            .focused
+                            .lock()
+                            .map(|f| f.as_deref() == Some(id_t.as_str()))
+                            .unwrap_or(false);
+                        if is_focused {
+                            let fs = app_t.state::<FsRoot>();
+                            if fs.set(Path::new(&cwd)) {
+                                let _ = app_t.emit("fs://cwd", CwdChanged { path: cwd });
+                            }
                         }
                     }
                 }
@@ -230,6 +270,31 @@ pub fn pty_create(
             child,
         },
     );
+    Ok(())
+}
+
+/// フォーカス中ペインを切り替える（ADR-0002）。renderer は id だけを渡し、Rust が
+/// その id の保持 cwd を FsRoot に採用して `fs://cwd` を emit する（パスは渡さない）。
+#[tauri::command]
+pub fn pty_focus(id: String, app: AppHandle, state: State<PtyState>) -> Result<(), String> {
+    *state.focused.lock().map_err(|e| e.to_string())? = Some(id.clone());
+    let cwd = {
+        let cwds = state.cwds.lock().map_err(|e| e.to_string())?;
+        focused_cwd(&cwds, Some(&id)).cloned()
+    };
+    if let Some(cwd) = cwd {
+        let fs = app.state::<FsRoot>();
+        if fs.set(&cwd) {
+            if let Some(path) = cwd.to_str() {
+                let _ = app.emit(
+                    "fs://cwd",
+                    CwdChanged {
+                        path: path.to_string(),
+                    },
+                );
+            }
+        }
+    }
     Ok(())
 }
 
@@ -273,12 +338,53 @@ pub fn pty_close(id: String, state: State<PtyState>) -> Result<(), String> {
         // 束ねる対策を検討する。
         let _ = sess.child.kill();
     }
+    // cwd 保持と focused 参照を後始末（ADR-0002）。
+    if let Ok(mut cwds) = state.cwds.lock() {
+        cwds.remove(&id);
+    }
+    if let Ok(mut focused) = state.focused.lock() {
+        if focused.as_deref() == Some(id.as_str()) {
+            *focused = None;
+        }
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_cwd, shell_program};
+    use super::{extract_cwd, focused_cwd, shell_program, spawn_cwd};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    #[test]
+    fn spawn_cwd_inherits_from_the_source_pane_when_present() {
+        let fallback = PathBuf::from("C:\\fallback");
+        assert_eq!(
+            spawn_cwd(Some(PathBuf::from("C:\\proj")), fallback),
+            PathBuf::from("C:\\proj")
+        );
+    }
+
+    #[test]
+    fn spawn_cwd_falls_back_when_the_source_cwd_is_unknown() {
+        let fallback = PathBuf::from("C:\\fallback");
+        assert_eq!(spawn_cwd(None, fallback.clone()), fallback);
+    }
+
+    #[test]
+    fn focused_cwd_returns_the_focused_panes_cwd() {
+        let mut cwds = HashMap::new();
+        cwds.insert("a".to_string(), PathBuf::from("C:\\a"));
+        cwds.insert("b".to_string(), PathBuf::from("C:\\b"));
+        assert_eq!(focused_cwd(&cwds, Some("b")), Some(&PathBuf::from("C:\\b")));
+    }
+
+    #[test]
+    fn focused_cwd_is_none_when_unfocused_or_missing() {
+        let cwds: HashMap<String, PathBuf> = HashMap::new();
+        assert_eq!(focused_cwd(&cwds, None), None);
+        assert_eq!(focused_cwd(&cwds, Some("x")), None);
+    }
 
     #[test]
     fn prefers_pwsh_when_available() {
