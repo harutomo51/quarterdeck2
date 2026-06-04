@@ -5,17 +5,35 @@ mod fs_scope;
 mod git;
 mod pty;
 
+use std::path::PathBuf;
+
 use fs_scope::FsRoot;
 use pty::PtyState;
+
+/// `USERPROFILE`（実在ディレクトリのとき）を優先し、無ければ cwd を採用する純粋ロジック。
+/// 副作用（環境変数・FS 参照）と分離してテスト可能にする。
+fn pick_initial_dir(userprofile: Option<PathBuf>, cwd: PathBuf) -> PathBuf {
+    userprofile.unwrap_or(cwd)
+}
+
+/// アプリ起動時の初期ディレクトリ。Windows のユーザープロファイルのルート
+/// (`%USERPROFILE%`、例 `C:\Users\<name>`) を基準にし、取得できない／実在しない
+/// ときは現在の作業ディレクトリへフォールバックする。`FsRoot` の初期スコープと
+/// PTY の起動 cwd の両方の基準として使い、一致させる。
+pub(crate) fn initial_dir() -> PathBuf {
+    let userprofile = std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir());
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    pick_initial_dir(userprofile, cwd)
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PtyState::default())
-        .manage(FsRoot::new(
-            std::env::current_dir().expect("cwd を取得できません"),
-        ))
+        .manage(FsRoot::new(initial_dir()))
         .invoke_handler(tauri::generate_handler![
             pty::pty_create,
             pty::pty_write,
@@ -28,4 +46,23 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_initial_dir;
+    use std::path::PathBuf;
+
+    #[test]
+    fn prefers_userprofile_when_present() {
+        let profile = PathBuf::from("C:\\Users\\someone");
+        let cwd = PathBuf::from("C:\\dev\\quarterdeck");
+        assert_eq!(pick_initial_dir(Some(profile.clone()), cwd), profile);
+    }
+
+    #[test]
+    fn falls_back_to_cwd_when_userprofile_absent() {
+        let cwd = PathBuf::from("C:\\dev\\quarterdeck");
+        assert_eq!(pick_initial_dir(None, cwd.clone()), cwd);
+    }
 }

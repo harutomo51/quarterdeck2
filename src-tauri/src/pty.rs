@@ -79,10 +79,8 @@ fn resolve_shell() -> CommandBuilder {
     cmd.arg("-NoExit");
     cmd.arg("-Command");
     cmd.arg(PROMPT_INJECT);
-    // 起動ディレクトリを引き継ぐ（FsRoot の初期基準と一致させる）。
-    if let Ok(cwd) = std::env::current_dir() {
-        cmd.cwd(cwd);
-    }
+    // 起動ディレクトリを FsRoot の初期基準（ユーザープロファイルルート）と一致させる。
+    cmd.cwd(crate::initial_dir());
     cmd
 }
 
