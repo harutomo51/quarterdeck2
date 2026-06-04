@@ -51,28 +51,43 @@ fn repo_root(cwd: &Path) -> Result<PathBuf, String> {
 
 /// リポジトリ root と `git log` の生テキスト（フィールドは US=0x1f 区切り、最大 300 件）。
 /// format は `%H%x1f%P%x1f%an%x1f%ar%x1f%D%x1f%s`（%D = ブランチ/タグ参照）。
+///
+/// `async` + `spawn_blocking` で git のサブプロセス起動・出力待ちをブロッキングプールへ
+/// 逃がす。同期コマンドはメインスレッドで実行され、git 実行中 UI 全体が固まるため。
 #[tauri::command]
-pub fn git_log(state: State<FsRoot>) -> Result<GitLog, String> {
-    let root = repo_root(&state.current())?;
-    let log = run_git(
-        &root,
-        &[
-            "log",
-            "--pretty=format:%H%x1f%P%x1f%an%x1f%ar%x1f%D%x1f%s",
-            "--date-order",
-            "-n",
-            "300",
-        ],
-    )?;
-    Ok(GitLog {
-        root: root.to_string_lossy().to_string(),
-        log,
+pub async fn git_log(state: State<'_, FsRoot>) -> Result<GitLog, String> {
+    let cwd = state.current();
+    tauri::async_runtime::spawn_blocking(move || -> Result<GitLog, String> {
+        let root = repo_root(&cwd)?;
+        let log = run_git(
+            &root,
+            &[
+                "log",
+                "--pretty=format:%H%x1f%P%x1f%an%x1f%ar%x1f%D%x1f%s",
+                "--date-order",
+                "-n",
+                "300",
+            ],
+        )?;
+        Ok(GitLog {
+            root: root.to_string_lossy().to_string(),
+            log,
+        })
     })
+    .await
+    .map_err(|e| format!("git_log task failed: {e}"))?
 }
 
 /// `git worktree list --porcelain` の生テキスト。
+///
+/// git_log と同様に `spawn_blocking` でメインスレッドを塞がない。
 #[tauri::command]
-pub fn git_worktree_list(state: State<FsRoot>) -> Result<String, String> {
-    let root = repo_root(&state.current())?;
-    run_git(&root, &["worktree", "list", "--porcelain"])
+pub async fn git_worktree_list(state: State<'_, FsRoot>) -> Result<String, String> {
+    let cwd = state.current();
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let root = repo_root(&cwd)?;
+        run_git(&root, &["worktree", "list", "--porcelain"])
+    })
+    .await
+    .map_err(|e| format!("git_worktree_list task failed: {e}"))?
 }

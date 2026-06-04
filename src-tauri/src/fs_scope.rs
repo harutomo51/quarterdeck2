@@ -35,12 +35,18 @@ impl FsRoot {
         self.root.lock().expect("FsRoot poisoned").clone()
     }
 
-    /// 新しい cwd を採用する。`canonicalize` 成功かつディレクトリのときだけ更新し、
-    /// 採用したら true。実在しない / ファイルなら無視して false（degrade）。
+    /// 新しい cwd を採用する。`canonicalize` 成功かつディレクトリで、**現在値と異なる**
+    /// ときだけ更新し true を返す。同一パス（= プロンプト毎の同じ cwd 通知）や、実在しない
+    /// / ファイルなら false（degrade）。同一パスで false を返すことで、`fs://cwd` の連発と
+    /// それに伴う Git パネルの無駄な再ロードを抑える。
     pub fn set(&self, path: &Path) -> bool {
         match path.canonicalize() {
             Ok(canon) if canon.is_dir() => {
-                *self.root.lock().expect("FsRoot poisoned") = canon;
+                let mut guard = self.root.lock().expect("FsRoot poisoned");
+                if *guard == canon {
+                    return false;
+                }
+                *guard = canon;
                 true
             }
             _ => false,
@@ -184,6 +190,17 @@ mod tests {
         let root = FsRoot::new(start.clone());
 
         assert!(!root.set(&dir.path().join("does-not-exist")));
+        assert_eq!(root.current(), start);
+    }
+
+    #[test]
+    fn set_returns_false_when_path_is_unchanged() {
+        // プロンプト毎に同じ cwd を通知されても false を返し、fs://cwd の連発を抑える。
+        let dir = tempdir().unwrap();
+        let start = dir.path().canonicalize().unwrap();
+        let root = FsRoot::new(start.clone());
+
+        assert!(!root.set(&start));
         assert_eq!(root.current(), start);
     }
 }
