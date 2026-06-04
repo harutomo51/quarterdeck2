@@ -730,14 +730,19 @@ body {
 }
 
 .terminal-host {
+  position: relative;
   flex: 1;
   min-height: 0;
+  min-width: 0;
   padding: 8px;
+  /* xterm の罫線・行がコンテナ幅を超えてもサイドパネルへはみ出さないようクリップする。 */
+  overflow: hidden;
 }
 
-/* xterm のビューポートを host いっぱいに広げる */
+/* xterm のビューポートを host いっぱいに広げる（幅も host に収める） */
 .terminal-host .xterm,
 .terminal-host .xterm-viewport,
 .terminal-host .xterm-screen {
   height: 100%;
+  max-width: 100%;
 }

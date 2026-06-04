@@ -69,16 +69,42 @@ export function TerminalView({ id }: TerminalViewProps) {
       void invoke('pty_write', { id, data });
     });
 
-    const onResize = () => {
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastCols = term.cols;
+    let lastRows = term.rows;
+
+    // 再フィットし、列数・行数が実際に変わった時だけ PTY へ通知する。
+    // 同じ cols/rows での無駄な resize 送信（= SIGWINCH 連発）を避ける。
+    const applyResize = () => {
       fit.fit();
-      void invoke('pty_resize', { id, cols: term.cols, rows: term.rows });
+      if (term.cols !== lastCols || term.rows !== lastRows) {
+        lastCols = term.cols;
+        lastRows = term.rows;
+        void invoke('pty_resize', { id, cols: term.cols, rows: term.rows });
+      }
+    };
+
+    // 高速リサイズで pty_resize/SIGWINCH を連発すると TUI（Claude Code 等）の
+    // 再描画が追いつかず表示が崩れる。サイズが落ち着いてから一度だけ適用する。
+    // リサイズ中の一時的なはみ出しは .terminal-host の overflow:hidden が抑える。
+    const onResize = () => {
+      if (resizeTimer !== undefined) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(applyResize, 100);
     };
     window.addEventListener('resize', onResize);
+
+    // サイドバーの表示/折り畳み/ドラッグでターミナル領域の幅が変わるが、
+    // window の resize は飛ばない。host 自体のサイズ変化を監視して再フィットし、
+    // 古い列数のまま罫線がサイドパネルへはみ出すのを防ぐ。
+    const ro = new ResizeObserver(() => onResize());
+    ro.observe(ref.current!);
 
     void invoke('pty_create', { id, cols: term.cols, rows: term.rows });
 
     return () => {
       window.removeEventListener('resize', onResize);
+      ro.disconnect();
+      if (resizeTimer !== undefined) clearTimeout(resizeTimer);
       offData.dispose();
       void unData.then((f) => f());
       void unExit.then((f) => f());
