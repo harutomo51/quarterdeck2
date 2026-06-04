@@ -19,7 +19,11 @@ import { listen } from '@tauri-apps/api/event';
 
 interface TerminalViewProps {
   id: string;
+  /** ターミナル背景色（rgba 文字列）。未指定なら透過してアプリ背景を透けさせる。 */
+  background?: string;
 }
+
+const TRANSPARENT = 'rgba(0, 0, 0, 0)';
 
 interface PtyData {
   id: string;
@@ -39,19 +43,26 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
-export function TerminalView({ id }: TerminalViewProps) {
+export function TerminalView({ id, background }: TerminalViewProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const termRef = useRef<Terminal | null>(null);
+  // 初期生成時の背景色を effect 内で参照する（生成 effect は [id] のみ依存させ、
+  // 色変更でターミナルを作り直さないため、最新値は ref 経由で読む）。
+  const backgroundRef = useRef(background);
+  backgroundRef.current = background;
 
   useEffect(() => {
     const term = new Terminal({
       fontFamily: '"Cascadia Code", "Consolas", monospace',
       fontSize: 14,
       cursorBlink: true,
-      // 背景は透過にして、アプリ背景レイヤー（CSS の --bg）を透けさせる。
-      // 透明度は背景のみに当て、文字色 (foreground) には適用しない（CLAUDE.md）。
+      // 背景は既定で透過にし、アプリ背景レイヤー（CSS の --bg）を透けさせる。
+      // Terminal color が指定されればその rgba を使う。透明度は背景のみに当て、
+      // 文字色 (foreground) には適用しない（CLAUDE.md）。
       allowTransparency: true,
-      theme: { background: 'rgba(0, 0, 0, 0)', foreground: '#e6e6e6' },
+      theme: { background: backgroundRef.current ?? TRANSPARENT, foreground: '#e6e6e6' },
     });
+    termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(ref.current!);
@@ -110,8 +121,16 @@ export function TerminalView({ id }: TerminalViewProps) {
       void unExit.then((f) => f());
       void invoke('pty_close', { id });
       term.dispose();
+      termRef.current = null;
     };
   }, [id]);
+
+  // Terminal color / Opacity の変更を既存ターミナルへ反映（再生成しない）。
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.theme = { ...term.options.theme, background: background ?? TRANSPARENT };
+  }, [background]);
 
   return <div ref={ref} className="terminal-host" />;
 }

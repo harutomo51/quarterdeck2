@@ -17,7 +17,8 @@ body,
 }
 
 body {
-  background: var(--bg);
+  /* App color: ターミナル/サイドパネル以外のアプリ面。 */
+  background: var(--app-bg, #0f1115);
   color: var(--fg);
   font-family: 'Segoe UI', system-ui, sans-serif;
 }
@@ -43,7 +44,8 @@ body {
   justify-content: space-between;
   padding: 6px 10px;
   border-bottom: 1px solid #20242d;
-  background: color-mix(in srgb, var(--bg-base, #0f1115) 70%, transparent);
+  /* App color（タイトルバーもアプリ面）。 */
+  background: var(--app-bg, #0f1115);
 }
 
 .titlebar-title {
@@ -71,67 +73,135 @@ body {
   color: var(--accent);
 }
 
-/* ===== Settings panel ===== */
+/* ===== Settings panel（Appearance） ===== */
 .settings-panel {
   position: absolute;
   top: calc(100% + 6px);
   right: 8px;
   z-index: 10;
-  width: 260px;
+  width: 300px;
   padding: 14px;
-  border: 1px solid #2a2f3a;
-  border-radius: 10px;
-  background: #161922;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  border: 1px solid #232a36;
+  border-radius: 14px;
+  background: #0d1017;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 
-.settings-section {
+.settings-header {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.settings-heading {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-  display: flex;
+  align-items: center;
   justify-content: space-between;
+  padding: 2px 4px 6px;
 }
 
-.settings-value {
-  color: var(--accent);
+.settings-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
 }
 
-.settings-presets,
-.settings-accents {
-  display: flex;
-  gap: 8px;
-}
-
-.preset-swatch,
-.accent-swatch {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 2px solid transparent;
+.settings-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
-  color: #fff;
-  font-size: 13px;
+  padding: 4px;
+  border-radius: 7px;
 }
 
-.preset-swatch[aria-pressed='true'],
-.accent-swatch[aria-pressed='true'] {
-  border-color: var(--accent);
+.settings-close:hover {
+  background: #1b212c;
+  color: var(--fg);
 }
 
-.settings-section input[type='range'] {
+/* 共通の行: アイコン + ラベル + 値（スウォッチ/スライダー） */
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #1e2531;
+  border-radius: 10px;
+  background: #141923;
+  color: var(--fg);
+  font-size: 13.5px;
+  text-align: left;
+}
+
+button.settings-row {
+  cursor: pointer;
+}
+
+button.settings-row:hover,
+.settings-row:has(.settings-swatch):hover {
+  border-color: #2b3442;
+  background: #171d28;
+}
+
+.settings-row-icon {
+  display: inline-flex;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.settings-row-label {
+  flex: 1 1 auto;
+}
+
+.settings-row--preset {
+  justify-content: flex-start;
+}
+
+.settings-row-preset-label {
+  flex: 1 1 auto;
+  text-align: center;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* カラースウォッチ: 角丸チップに不可視の color input を重ねる */
+.settings-swatch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.settings-color-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.settings-slider {
+  flex: 1 1 auto;
+  min-width: 0;
   accent-color: var(--accent);
+}
+
+.settings-row-value {
+  flex: 0 0 auto;
+  min-width: 34px;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* サイドバーは右配置（DOM 順: terminal → sidebar）。幅は inline style で可変。 */
@@ -139,7 +209,8 @@ body {
   position: relative;
   min-width: 0;
   border-left: 1px solid #20242d;
-  background: color-mix(in srgb, var(--bg-base, #0f1115) 55%, transparent);
+  /* Terminal color: サイドパネルはターミナルと同じ色。 */
+  background: var(--terminal-bg, #0f1115);
   display: flex;
   flex-direction: column;
 }

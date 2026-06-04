@@ -18,18 +18,20 @@ export interface BackgroundPreset {
   base: string;
 }
 
-export interface AccentColor {
-  id: string;
-  label: string;
-  value: string; // #rrggbb
-}
-
 export interface AppearanceSettings {
   presetId: string;
   /** 背景レイヤーの不透明度（ALPHA_MIN..1）。 */
   bgAlpha: number;
-  /** アクセント色（#rrggbb）。 */
-  accent: string;
+  /**
+   * App color（#rrggbb）。ターミナルとサイドパネル**以外**のアプリ面
+   * （タイトルバー＋アプリ本体背景）の色。透明度は bgAlpha を合成。
+   */
+  appColor: string;
+  /**
+   * Terminal color（#rrggbb）。ターミナル**と**サイドパネルの色。
+   * 透明度は bgAlpha を合成。
+   */
+  terminalColor: string;
 }
 
 export const BACKGROUND_PRESETS: readonly BackgroundPreset[] = [
@@ -40,14 +42,6 @@ export const BACKGROUND_PRESETS: readonly BackgroundPreset[] = [
   { id: 'forest', label: 'Forest', base: '#0f1a14' },
 ];
 
-export const ACCENT_COLORS: readonly AccentColor[] = [
-  { id: 'azure', label: 'Azure', value: '#4cc2ff' },
-  { id: 'violet', label: 'Violet', value: '#b18cff' },
-  { id: 'emerald', label: 'Emerald', value: '#4ade80' },
-  { id: 'amber', label: 'Amber', value: '#fbbf24' },
-  { id: 'rose', label: 'Rose', value: '#fb7185' },
-];
-
 /** 背景が見えなくなりすぎない下限（可読性確保）。 */
 export const ALPHA_MIN = 0.3;
 export const ALPHA_MAX = 1;
@@ -55,7 +49,9 @@ export const ALPHA_MAX = 1;
 export const DEFAULT_SETTINGS: AppearanceSettings = {
   presetId: 'midnight',
   bgAlpha: 1,
-  accent: '#4cc2ff',
+  // 既定は midnight プリセットと同色のダーク。従来の見た目を維持する。
+  appColor: '#0f1115',
+  terminalColor: '#0f1115',
 };
 
 const STORAGE_KEY = 'quarterdeck.appearance';
@@ -88,18 +84,29 @@ export function findPreset(presetId: string): BackgroundPreset {
   return BACKGROUND_PRESETS.find((p) => p.id === presetId) ?? BACKGROUND_PRESETS[0];
 }
 
+/** 現在のプリセットの次（末尾なら先頭へ循環）の id を返す。設定 UI の行クリック用。 */
+export function nextPresetId(currentId: string): string {
+  const idx = BACKGROUND_PRESETS.findIndex((p) => p.id === currentId);
+  const next = BACKGROUND_PRESETS[(idx + 1) % BACKGROUND_PRESETS.length];
+  return next.id;
+}
+
 /** 未知の値・不正値をデフォルトへ寄せて正規化する（外部入力の境界防御）。 */
 export function normalizeSettings(raw: Partial<AppearanceSettings> | null | undefined): AppearanceSettings {
   if (!raw) return { ...DEFAULT_SETTINGS };
   const preset = BACKGROUND_PRESETS.some((p) => p.id === raw.presetId)
     ? (raw.presetId as string)
     : DEFAULT_SETTINGS.presetId;
-  const accent =
-    typeof raw.accent === 'string' && HEX_RE.test(raw.accent)
-      ? raw.accent
-      : DEFAULT_SETTINGS.accent;
+  const appColor =
+    typeof raw.appColor === 'string' && HEX_RE.test(raw.appColor)
+      ? raw.appColor
+      : DEFAULT_SETTINGS.appColor;
+  const terminalColor =
+    typeof raw.terminalColor === 'string' && HEX_RE.test(raw.terminalColor)
+      ? raw.terminalColor
+      : DEFAULT_SETTINGS.terminalColor;
   const bgAlpha = typeof raw.bgAlpha === 'number' ? clampAlpha(raw.bgAlpha) : DEFAULT_SETTINGS.bgAlpha;
-  return { presetId: preset, accent, bgAlpha };
+  return { presetId: preset, appColor, terminalColor, bgAlpha };
 }
 
 /**
@@ -108,12 +115,21 @@ export function normalizeSettings(raw: Partial<AppearanceSettings> | null | unde
  * 文字色 --fg は意図的に返さない（透明度を文字に適用しないため）。
  */
 export function toCssVars(settings: AppearanceSettings): Record<string, string> {
-  const preset = findPreset(settings.presetId);
   return {
-    '--bg': toRgba(preset.base, settings.bgAlpha),
-    '--bg-base': preset.base,
-    '--accent': settings.accent,
+    // App color: ターミナル/サイドパネル以外のアプリ面（タイトルバー＋本体背景）。
+    '--app-bg': toRgba(settings.appColor, settings.bgAlpha),
+    // Terminal color: ターミナル＋サイドパネル。
+    '--terminal-bg': terminalBackground(settings),
   };
+  // ハイライト用 --accent は :root の定数に委ねる（領域色とは独立させ可読性を確保）。
+}
+
+/**
+ * xterm に渡すターミナル背景色（rgba 文字列）。ターミナル色に bgAlpha を合成し、
+ * 透明度は背景レイヤーのみに当てる原則（CLAUDE.md）を守る。
+ */
+export function terminalBackground(settings: AppearanceSettings): string {
+  return toRgba(settings.terminalColor, settings.bgAlpha);
 }
 
 /** localStorage の JSON 文字列を安全にパース（失敗時はデフォルト）。 */

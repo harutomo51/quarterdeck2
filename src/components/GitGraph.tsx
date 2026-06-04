@@ -126,7 +126,7 @@ export function GitGraph() {
                   cx={xOf(row.column)}
                   cy={ROW_H / 2}
                   r={DOT_R}
-                  fill="var(--bg-base, #0f1115)"
+                  fill="var(--terminal-bg, #0f1115)"
                   stroke={laneColor(row.column)}
                   strokeWidth={2.5}
                 />

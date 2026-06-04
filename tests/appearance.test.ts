@@ -4,6 +4,7 @@ import {
   hexToRgb,
   toRgba,
   findPreset,
+  nextPresetId,
   normalizeSettings,
   toCssVars,
   parseSettings,
@@ -74,15 +75,26 @@ describe('normalizeSettings', () => {
   });
 
   test('keeps valid values', () => {
-    const input: AppearanceSettings = { presetId: 'ocean', bgAlpha: 0.6, accent: '#4ade80' };
+    const input: AppearanceSettings = {
+      presetId: 'ocean',
+      bgAlpha: 0.6,
+      appColor: '#4ade80',
+      terminalColor: '#0d1b2a',
+    };
     expect(normalizeSettings(input)).toEqual(input);
   });
 
-  test('coerces unknown preset and invalid accent to defaults', () => {
-    const result = normalizeSettings({ presetId: 'bogus', accent: 'red', bgAlpha: 0.8 });
+  test('coerces unknown preset and invalid appColor to defaults', () => {
+    const result = normalizeSettings({ presetId: 'bogus', appColor: 'red', bgAlpha: 0.8 });
     expect(result.presetId).toBe(DEFAULT_SETTINGS.presetId);
-    expect(result.accent).toBe(DEFAULT_SETTINGS.accent);
+    expect(result.appColor).toBe(DEFAULT_SETTINGS.appColor);
     expect(result.bgAlpha).toBe(0.8);
+  });
+
+  test('coerces invalid terminalColor to default', () => {
+    expect(normalizeSettings({ terminalColor: 'navy' }).terminalColor).toBe(
+      DEFAULT_SETTINGS.terminalColor,
+    );
   });
 
   test('clamps out-of-range alpha', () => {
@@ -91,18 +103,45 @@ describe('normalizeSettings', () => {
 });
 
 describe('toCssVars', () => {
-  test('emits background rgba and accent, but not foreground', () => {
-    const vars = toCssVars({ presetId: 'midnight', bgAlpha: 0.5, accent: '#b18cff' });
-    expect(vars['--bg']).toBe('rgba(15, 17, 21, 0.5)');
-    expect(vars['--bg-base']).toBe('#0f1115');
-    expect(vars['--accent']).toBe('#b18cff');
+  test('emits app-bg and terminal-bg with alpha, but not accent or foreground', () => {
+    const vars = toCssVars({
+      presetId: 'midnight',
+      bgAlpha: 0.5,
+      appColor: '#b18cff',
+      terminalColor: '#11141c',
+    });
+    // App color に bgAlpha を合成（ターミナル/サイドパネル以外のアプリ面）。
+    expect(vars['--app-bg']).toBe('rgba(177, 140, 255, 0.5)');
+    // Terminal color に bgAlpha を合成（ターミナル＋サイドパネル）。
+    expect(vars['--terminal-bg']).toBe('rgba(17, 20, 28, 0.5)');
+    // ハイライト --accent は :root 定数に委ね、ここでは出力しない。
+    expect(vars['--accent']).toBeUndefined();
     expect(vars['--fg']).toBeUndefined();
+  });
+});
+
+describe('nextPresetId', () => {
+  test('cycles to the next preset', () => {
+    expect(nextPresetId('midnight')).toBe('charcoal');
+  });
+
+  test('wraps around from the last preset to the first', () => {
+    expect(nextPresetId('forest')).toBe('midnight');
+  });
+
+  test('falls back to the first preset for an unknown id', () => {
+    expect(nextPresetId('bogus')).toBe('midnight');
   });
 });
 
 describe('parse/serialize round trip', () => {
   test('round trips a valid settings object', () => {
-    const settings: AppearanceSettings = { presetId: 'slate', bgAlpha: 0.7, accent: '#fbbf24' };
+    const settings: AppearanceSettings = {
+      presetId: 'slate',
+      bgAlpha: 0.7,
+      appColor: '#fbbf24',
+      terminalColor: '#1a1d24',
+    };
     expect(parseSettings(serializeSettings(settings))).toEqual(settings);
   });
 

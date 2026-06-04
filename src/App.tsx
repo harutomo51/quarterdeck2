@@ -10,6 +10,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { useAppearance } from './hooks/useAppearance';
 import { useLayout } from './hooks/useLayout';
 import { checkForUpdates } from './lib/updater';
+import { terminalBackground } from './lib/appearance';
 
 export default function App() {
   const { settings, update } = useAppearance();
@@ -48,11 +49,17 @@ export default function App() {
             ⚙
           </button>
         </div>
-        {settingsOpen && <SettingsPanel settings={settings} onChange={update} />}
+        {settingsOpen && (
+          <SettingsPanel
+            settings={settings}
+            onChange={update}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
       </header>
       <div className="app-body">
         <section className="terminal-pane">
-          <TerminalView id="main" />
+          <TerminalView id="main" background={terminalBackground(settings)} />
         </section>
         {!collapsed && (
           <aside
