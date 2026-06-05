@@ -104,6 +104,26 @@ export function TerminalView({
     // ショートカットを PTY へ流す前に横取りする（一致すれば onAction、PTY へは送らない）。
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
+
+      // Ctrl+V 貼り付け。Aquavoice 等の音声入力や OS レベル SendInput は本文を
+      // クリップボードに置き Ctrl+V キーストロークだけを送るため、xterm 既定では
+      // ^V(0x16) が PTY へ流れる。pwsh の PSReadLine は ^V を貼り付けに解釈するが、
+      // raw モードの TUI（Claude Code 等）は取りこぼす。ここで自前にクリップボードを
+      // 読み term.paste() に渡せば、TUI が有効化する bracketed paste にも従って
+      // ラップされ、どのアプリでも本文が入力される。
+      if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault();
+        void navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) term.paste(text);
+          })
+          .catch(() => {
+            // 読み取り不可（権限・空）時は何もしない。^V は送らない。
+          });
+        return false;
+      }
+
       const b = bindingsRef.current;
       if (!b) return true;
       const action = matchAction(b, e);
