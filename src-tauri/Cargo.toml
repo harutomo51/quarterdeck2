@@ -18,6 +18,7 @@ portable-pty = "0.9"        # PTY コア
 base64 = "0.22"             # PTY 出力のイベント送信
 which = "6"                 # pwsh / powershell 解決
 tauri-plugin-updater = "2"  # Phase 4 配布（NSIS + 自動更新）
+notify-debouncer-mini = "0.7" # ファイルツリー自動更新（FS 監視 + デバウンス。notify 再エクスポート同梱）
 
 [dev-dependencies]
 tempfile = "3" # fs_scope のスコープ強制テスト用

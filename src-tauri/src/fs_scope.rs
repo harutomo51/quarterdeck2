@@ -60,7 +60,9 @@ pub struct Entry {
     is_dir: bool,
 }
 
-const EXCLUDE: &[&str] = &["node_modules", ".git", "out", "dist", "target"];
+/// スコープ間引き対象。`list_dir` の列挙除外と、FS watcher（ADR-0003）の
+/// イベント無視の両方が参照する単一の真実（齟齬を防ぐ）。
+pub(crate) const EXCLUDE: &[&str] = &["node_modules", ".git", "out", "dist", "target"];
 const MAX_PREVIEW_BYTES: u64 = 1024 * 1024; // 1MB プレビュー制限
 
 /// `root` 配下の相対パス `rel` を正規化し、root の外へ出ていないか検証する。
@@ -73,6 +75,47 @@ fn resolve_within(root: &Path, rel: &str) -> Result<PathBuf, String> {
         return Err("path is outside the allowed root".into());
     }
     Ok(canon)
+}
+
+/// FS 変更イベントの絶対パス群（ADR-0003）から、ファイルツリーが再取得すべき
+/// 「影響を受けた親ディレクトリ」の rel 集合を算出する純粋関数。
+///
+/// 各変更パスの**親**（その listing が変わる）を `root` で相対化し、`/` 区切りの rel に
+/// する（frontend の `joinRel` と同じ区切り）。root 直下は空文字 `""`（= ツリーのルート
+/// 再取得）。EXCLUDE 配下（`node_modules` 等）と root 外は除外し、重複は最初の出現順を
+/// 保って 1 つに畳む。区切りに依存しないよう相対化後は `Components` で分解する。
+pub(crate) fn affected_dirs(root: &Path, paths: &[PathBuf]) -> Vec<String> {
+    use std::collections::HashSet;
+    use std::path::Component;
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out = Vec::new();
+    for p in paths {
+        let Some(parent) = p.parent() else { continue };
+        let Ok(stripped) = parent.strip_prefix(root) else {
+            continue; // root 外 → 無視（stale な旧 root 由来イベント等）。
+        };
+        let mut rel_parts = Vec::new();
+        let mut excluded = false;
+        for comp in stripped.components() {
+            if let Component::Normal(os) = comp {
+                let s = os.to_string_lossy().to_string();
+                if EXCLUDE.contains(&s.as_str()) {
+                    excluded = true;
+                    break;
+                }
+                rel_parts.push(s);
+            }
+        }
+        if excluded {
+            continue;
+        }
+        let rel = rel_parts.join("/");
+        if seen.insert(rel.clone()) {
+            out.push(rel);
+        }
+    }
+    out
 }
 
 #[tauri::command]
@@ -122,9 +165,67 @@ pub fn read_preview(rel: String, state: State<FsRoot>) -> Result<Preview, String
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_within, FsRoot};
+    use super::{affected_dirs, resolve_within, FsRoot};
     use std::fs;
+    use std::path::{Path, PathBuf};
     use tempfile::tempdir;
+
+    #[test]
+    fn affected_dirs_maps_a_file_change_to_its_parent_rel() {
+        let root = Path::new("C:/proj");
+        let paths = vec![PathBuf::from("C:/proj/src/a.ts")];
+        assert_eq!(affected_dirs(root, &paths), vec!["src".to_string()]);
+    }
+
+    #[test]
+    fn affected_dirs_uses_empty_string_for_root_level_changes() {
+        // root 直下のファイル変更 → ルート再取得を表す空文字。
+        let root = Path::new("C:/proj");
+        let paths = vec![PathBuf::from("C:/proj/README.md")];
+        assert_eq!(affected_dirs(root, &paths), vec!["".to_string()]);
+    }
+
+    #[test]
+    fn affected_dirs_excludes_node_modules_subtree() {
+        let root = Path::new("C:/proj");
+        let paths = vec![PathBuf::from("C:/proj/node_modules/pkg/index.js")];
+        assert!(affected_dirs(root, &paths).is_empty());
+    }
+
+    #[test]
+    fn affected_dirs_rejects_paths_outside_root() {
+        // stale な旧 root 由来イベント等は root 外として落ちる。
+        let root = Path::new("C:/proj");
+        let paths = vec![PathBuf::from("C:/other/secret.txt")];
+        assert!(affected_dirs(root, &paths).is_empty());
+    }
+
+    #[test]
+    fn affected_dirs_dedupes_preserving_first_seen_order() {
+        let root = Path::new("C:/proj");
+        let paths = vec![
+            PathBuf::from("C:/proj/src/a.ts"),
+            PathBuf::from("C:/proj/src/lib/b.ts"),
+            PathBuf::from("C:/proj/src/c.ts"), // src 重複
+        ];
+        assert_eq!(
+            affected_dirs(root, &paths),
+            vec!["src".to_string(), "src/lib".to_string()]
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn affected_dirs_handles_backslash_separators_on_windows() {
+        // Windows の notify はバックスラッシュ区切りで報告する。Components で分解して
+        // frontend の joinRel と同じ `/` 区切りに正規化する。
+        let root = Path::new("C:\\proj");
+        let paths = vec![PathBuf::from("C:\\proj\\src\\lib\\deep\\x.ts")];
+        assert_eq!(
+            affected_dirs(root, &paths),
+            vec!["src/lib/deep".to_string()]
+        );
+    }
 
     #[test]
     fn accepts_path_inside_root() {

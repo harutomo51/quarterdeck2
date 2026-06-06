@@ -25,6 +25,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::fs_scope::FsRoot;
+use crate::fs_watch::FsWatcher;
 
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
@@ -253,7 +254,10 @@ pub fn pty_create(
                         if is_focused {
                             let fs = app_t.state::<FsRoot>();
                             if fs.set(Path::new(&cwd)) {
+                                // FsRoot が動いたら FS watcher も追従させる（ADR-0003）。
+                                let new_root = fs.current();
                                 let _ = app_t.emit("fs://cwd", CwdChanged { path: cwd });
+                                app_t.state::<FsWatcher>().watch(&app_t, &new_root);
                             }
                         }
                     }
@@ -285,6 +289,8 @@ pub fn pty_focus(id: String, app: AppHandle, state: State<PtyState>) -> Result<(
     if let Some(cwd) = cwd {
         let fs = app.state::<FsRoot>();
         if fs.set(&cwd) {
+            // フォーカス移動で FsRoot が動いたら FS watcher も追従させる（ADR-0003）。
+            let new_root = fs.current();
             if let Some(path) = cwd.to_str() {
                 let _ = app.emit(
                     "fs://cwd",
@@ -293,6 +299,7 @@ pub fn pty_focus(id: String, app: AppHandle, state: State<PtyState>) -> Result<(
                     },
                 );
             }
+            app.state::<FsWatcher>().watch(&app, &new_root);
         }
     }
     Ok(())

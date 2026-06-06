@@ -2,13 +2,16 @@
 // pty / fs_scope / git のコマンドを登録し、PtyState / FsRoot を管理する。
 
 mod fs_scope;
+mod fs_watch;
 mod git;
 mod pty;
 
 use std::path::PathBuf;
 
 use fs_scope::FsRoot;
+use fs_watch::FsWatcher;
 use pty::PtyState;
+use tauri::Manager;
 
 /// `USERPROFILE`（実在ディレクトリのとき）を優先し、無ければ cwd を採用する純粋ロジック。
 /// 副作用（環境変数・FS 参照）と分離してテスト可能にする。
@@ -34,6 +37,14 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PtyState::default())
         .manage(FsRoot::new(initial_dir()))
+        .manage(FsWatcher::new())
+        .setup(|app| {
+            // ファイルツリー自動更新（ADR-0003）: 起動時の FsRoot を初回監視する。
+            // 失敗は FsWatcher 内で静かに degrade。
+            let root = app.state::<FsRoot>().current();
+            app.state::<FsWatcher>().watch(&app.handle().clone(), &root);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             pty::pty_create,
             pty::pty_write,
