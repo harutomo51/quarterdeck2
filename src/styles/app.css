@@ -819,34 +819,24 @@ button.settings-row:hover,
 }
 
 /* ===== Split panes（ADR-0002）===== */
-/* split ノードは flex で 2 スロットに割り、間にドラッグ可能なディバイダを置く。
-   leaf スロットは flexBasis(=比率%) を React 側 style で受け取り、grow/shrink は 0 で固定。 */
-.pane-split {
-  display: flex;
+/* 全 leaf を同一コンテナ直下にフラットに絶対配置する（computeLayout の矩形）。分割しても
+   各 leaf の親が変わらないため、React が TerminalView（xterm + PTY）を保持できる。 */
+.pane-area {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
 }
 
-.pane-split-row {
-  flex-direction: row;
-}
-
-.pane-split-column {
-  flex-direction: column;
-}
-
 .pane-slot {
+  position: absolute;
   display: flex;
-  flex: 0 1 auto;
-  /* ターミナルが潰れない最小サイズを強制（Q6-b）。 */
-  min-width: 80px;
-  min-height: 64px;
   overflow: hidden;
 }
 
 .pane-divider {
-  flex: 0 0 6px;
+  position: absolute;
+  z-index: 1;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   transition: background 120ms ease;
 }

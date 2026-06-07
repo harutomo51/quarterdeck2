@@ -44,6 +44,28 @@ export interface Rect {
 export const RATIO_MIN = 0.1;
 export const RATIO_MAX = 0.9;
 
+/** ディバイダ（ドラッグ可能な仕切り）の厚み[px]。フラット絶対配置の描画/ヒット幅。 */
+export const DIVIDER_THICKNESS = 6;
+
+export interface LeafBox {
+  id: string;
+  rect: Rect;
+}
+
+export interface DividerBox {
+  splitId: string;
+  direction: SplitDirection;
+  /** ディバイダ自身の矩形（描画 & ヒット領域）。 */
+  rect: Rect;
+  /** この split が占める全体矩形（ドラッグ時の ratio 算出の基準）。 */
+  splitRect: Rect;
+}
+
+export interface Layout {
+  leaves: LeafBox[];
+  dividers: DividerBox[];
+}
+
 export function createLeaf(id: string): LeafNode {
   return { kind: 'leaf', id };
 }
@@ -137,25 +159,55 @@ export function setRatio(tree: PaneNode, splitId: string, ratio: number): PaneNo
   };
 }
 
-/** 各 leaf の矩形を計算する（ディバイダ厚は無視）。 */
-export function computeRects(tree: PaneNode, size: Size): Map<string, Rect> {
-  const out = new Map<string, Rect>();
+/**
+ * 各 leaf の矩形とディバイダの矩形をまとめて計算する（フラット絶対配置の単一の真実）。
+ *
+ * 再帰 flex ではなく**フラットな絶対配置**で描画するための座標を返す。これにより分割しても
+ * 各 leaf（TerminalView）の親が変わらず、React がインスタンスを保持できる（= 既存ターミナルが
+ * 再生成されない / ADR-0002）。leaf はエリアを隙間なくタイルし、ディバイダはその境界に厚み
+ * `DIVIDER_THICKNESS` を中央寄せで重ねる。
+ */
+export function computeLayout(tree: PaneNode, size: Size): Layout {
+  const leaves: LeafBox[] = [];
+  const dividers: DividerBox[] = [];
+  const half = DIVIDER_THICKNESS / 2;
   const walk = (node: PaneNode, rect: Rect): void => {
     if (node.kind === 'leaf') {
-      out.set(node.id, rect);
+      leaves.push({ id: node.id, rect });
       return;
     }
     if (node.direction === 'row') {
       const aw = rect.width * node.ratio;
+      dividers.push({
+        splitId: node.id,
+        direction: 'row',
+        rect: { x: rect.x + aw - half, y: rect.y, width: DIVIDER_THICKNESS, height: rect.height },
+        splitRect: rect,
+      });
       walk(node.a, { ...rect, width: aw });
       walk(node.b, { x: rect.x + aw, y: rect.y, width: rect.width - aw, height: rect.height });
     } else {
       const ah = rect.height * node.ratio;
+      dividers.push({
+        splitId: node.id,
+        direction: 'column',
+        rect: { x: rect.x, y: rect.y + ah - half, width: rect.width, height: DIVIDER_THICKNESS },
+        splitRect: rect,
+      });
       walk(node.a, { ...rect, height: ah });
       walk(node.b, { x: rect.x, y: rect.y + ah, width: rect.width, height: rect.height - ah });
     }
   };
   walk(tree, { x: 0, y: 0, width: size.width, height: size.height });
+  return { leaves, dividers };
+}
+
+/** 各 leaf の矩形を計算する（ディバイダ厚は無視）。`computeLayout` の leaf 部だけを引く。 */
+export function computeRects(tree: PaneNode, size: Size): Map<string, Rect> {
+  const out = new Map<string, Rect>();
+  for (const { id, rect } of computeLayout(tree, size).leaves) {
+    out.set(id, rect);
+  }
   return out;
 }
 

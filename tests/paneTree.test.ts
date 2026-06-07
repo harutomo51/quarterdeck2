@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   RATIO_MIN,
   RATIO_MAX,
+  DIVIDER_THICKNESS,
   clampRatio,
   createLeaf,
   splitLeaf,
@@ -9,6 +10,7 @@ import {
   collectLeafIds,
   setRatio,
   computeRects,
+  computeLayout,
   directionalFocus,
   type PaneNode,
 } from '@/lib/paneTree';
@@ -153,6 +155,60 @@ describe('computeRects', () => {
     const rects = computeRects(tree, { width: 100, height: 80 });
     expect(rects.get('a')).toEqual({ x: 0, y: 0, width: 100, height: 40 });
     expect(rects.get('b')).toEqual({ x: 0, y: 40, width: 100, height: 40 });
+  });
+});
+
+describe('computeLayout', () => {
+  test('gives a lone leaf the whole area and no dividers', () => {
+    const layout = computeLayout(createLeaf('a'), { width: 100, height: 80 });
+    expect(layout.leaves).toEqual([{ id: 'a', rect: { x: 0, y: 0, width: 100, height: 80 } }]);
+    expect(layout.dividers).toEqual([]);
+  });
+
+  test('places a vertical divider centered on a row split boundary', () => {
+    const tree = splitLeaf(createLeaf('a'), 'a', 'row', 'b', 's1');
+    const layout = computeLayout(tree, { width: 100, height: 80 });
+
+    expect(layout.leaves).toEqual([
+      { id: 'a', rect: { x: 0, y: 0, width: 50, height: 80 } },
+      { id: 'b', rect: { x: 50, y: 0, width: 50, height: 80 } },
+    ]);
+    expect(layout.dividers).toEqual([
+      {
+        splitId: 's1',
+        direction: 'row',
+        rect: { x: 50 - DIVIDER_THICKNESS / 2, y: 0, width: DIVIDER_THICKNESS, height: 80 },
+        splitRect: { x: 0, y: 0, width: 100, height: 80 },
+      },
+    ]);
+  });
+
+  test('places a horizontal divider centered on a column split boundary', () => {
+    const tree = splitLeaf(createLeaf('a'), 'a', 'column', 'b', 's1');
+    const layout = computeLayout(tree, { width: 100, height: 80 });
+
+    expect(layout.dividers).toEqual([
+      {
+        splitId: 's1',
+        direction: 'column',
+        rect: { x: 0, y: 40 - DIVIDER_THICKNESS / 2, width: 100, height: DIVIDER_THICKNESS },
+        splitRect: { x: 0, y: 0, width: 100, height: 80 },
+      },
+    ]);
+  });
+
+  test('keeps leaf rects identical to computeRects for a nested tree', () => {
+    let tree: PaneNode = splitLeaf(createLeaf('a'), 'a', 'row', 'b', 's1');
+    tree = splitLeaf(tree, 'b', 'column', 'c', 's2');
+    const size = { width: 200, height: 100 };
+
+    const layout = computeLayout(tree, size);
+    const rects = computeRects(tree, size);
+
+    for (const { id, rect } of layout.leaves) {
+      expect(rect).toEqual(rects.get(id));
+    }
+    expect(layout.dividers.map((d) => d.splitId)).toEqual(['s1', 's2']);
   });
 });
 
