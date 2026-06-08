@@ -2,8 +2,11 @@ import { describe, expect, test } from 'vitest';
 import {
   clampPercent,
   fiveHourPercent,
+  freshness,
+  isFresh,
   sevenDayPercent,
   usageLevel,
+  USAGE_STALE_MS,
   type UsagePayload,
 } from '../src/lib/usage';
 
@@ -90,5 +93,70 @@ describe('usageLevel', () => {
   test('red at the 90% boundary and above', () => {
     expect(usageLevel(90)).toBe('red');
     expect(usageLevel(100)).toBe('red');
+  });
+});
+
+describe('freshness', () => {
+  // ts は epoch 秒。now は ms。NOW_MS は便宜上の固定基準。
+  const NOW_MS = 1_700_000_000_000;
+  const TS = NOW_MS / 1000; // 同時刻（age 0）
+
+  test('fresh when just written', () => {
+    expect(freshness(TS, NOW_MS)).toBe('fresh');
+  });
+
+  test('fresh just under the 30s threshold', () => {
+    const ts = (NOW_MS - (USAGE_STALE_MS - 1000)) / 1000; // age 29s
+    expect(freshness(ts, NOW_MS)).toBe('fresh');
+  });
+
+  test('stale exactly at the 30s threshold', () => {
+    const ts = (NOW_MS - USAGE_STALE_MS) / 1000; // age 30s
+    expect(freshness(ts, NOW_MS)).toBe('stale');
+  });
+
+  test('stale well past the threshold', () => {
+    const ts = (NOW_MS - 60_000) / 1000; // age 60s
+    expect(freshness(ts, NOW_MS)).toBe('stale');
+  });
+
+  test('treats future ts (clock skew) as fresh', () => {
+    const ts = (NOW_MS + 10_000) / 1000;
+    expect(freshness(ts, NOW_MS)).toBe('fresh');
+  });
+
+  test('treats non-finite ts as stale', () => {
+    expect(freshness(Number.NaN, NOW_MS)).toBe('stale');
+    expect(freshness(Number.POSITIVE_INFINITY, NOW_MS)).toBe('stale');
+  });
+
+  test('honors a custom stale window', () => {
+    const ts = (NOW_MS - 5_000) / 1000; // age 5s
+    expect(freshness(ts, NOW_MS, 3_000)).toBe('stale');
+    expect(freshness(ts, NOW_MS, 10_000)).toBe('fresh');
+  });
+});
+
+describe('isFresh', () => {
+  const NOW_MS = 1_700_000_000_000;
+
+  test('false for null payload', () => {
+    expect(isFresh(null, NOW_MS)).toBe(false);
+  });
+
+  test('true for a freshly written payload', () => {
+    const payload: UsagePayload = {
+      rate_limits: { five_hour: { used_percentage: 10 } },
+      ts: NOW_MS / 1000,
+    };
+    expect(isFresh(payload, NOW_MS)).toBe(true);
+  });
+
+  test('false for a stale payload', () => {
+    const payload: UsagePayload = {
+      rate_limits: { five_hour: { used_percentage: 10 } },
+      ts: (NOW_MS - 60_000) / 1000,
+    };
+    expect(isFresh(payload, NOW_MS)).toBe(false);
   });
 });

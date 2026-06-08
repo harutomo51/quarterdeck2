@@ -132,9 +132,7 @@ export default function App() {
           </aside>
         )}
       </div>
-      <footer className="statusbar">
-        <UsageBar />
-      </footer>
+      <UsageBar />
     </div>
   );
 }

@@ -14,8 +14,13 @@ export function useUsage(): UsagePayload | null {
     const un = listen<UsagePayload>('usage://rate_limits', (e) => {
       setUsage(e.payload);
     });
+    // 統合失敗（listen 登録失敗）は握り潰さずログに残す。UI は usage=null のまま
+    // 静かに非表示にフォールバックする（issue 0003 degrade）。
+    un.catch((err) => {
+      console.error('useUsage: failed to subscribe usage://rate_limits', err);
+    });
     return () => {
-      void un.then((off) => off());
+      void un.then((off) => off()).catch(() => {});
     };
   }, []);
 

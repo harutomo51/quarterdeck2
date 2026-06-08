@@ -1,6 +1,6 @@
 /**
- * プラン利用枠バーの純粋ロジック（ADR-0004 / issue 0001・0002）。
- * UI 状態と分離してテスト可能にする。鮮度判定（issue 0003）は後続。
+ * プラン利用枠バーの純粋ロジック（ADR-0004 / issue 0001・0002・0003）。
+ * UI 状態と分離してテスト可能にする。
  *
  * ペイロードは Rust の usage_watch が `usage://rate_limits` で emit する形に対応する。
  * statusline.py が stdin の `rate_limits` を抜いて書き出したものが源流。
@@ -61,4 +61,35 @@ export function usageLevel(pct: number): UsageLevel {
   if (pct >= USAGE_RED_THRESHOLD) return 'red';
   if (pct >= USAGE_ORANGE_THRESHOLD) return 'orange';
   return 'green';
+}
+
+/** 鮮度しきい値（ms）。これ以上更新が無ければ stale とみなしバーを隠す。 */
+export const USAGE_STALE_MS = 30_000;
+
+export type Freshness = 'fresh' | 'stale';
+
+/**
+ * 書き出し時刻から鮮度を返す純粋関数。`tsSeconds` は epoch 秒（statusline.py の
+ * `time.time()`）、`nowMs` は現在時刻 ms（`Date.now()`）。
+ * 経過が `staleMs` 以上なら 'stale'（境界は stale 側に含む）。`ts` が非数値・無限なら
+ * 'stale'。clock skew で未来方向（`ts > now`）なら 'fresh' 扱い。
+ */
+export function freshness(
+  tsSeconds: number,
+  nowMs: number,
+  staleMs: number = USAGE_STALE_MS,
+): Freshness {
+  if (!Number.isFinite(tsSeconds)) return 'stale';
+  const ageMs = nowMs - tsSeconds * 1000;
+  return ageMs >= staleMs ? 'stale' : 'fresh';
+}
+
+/** ペイロードが鮮度内かどうか。null（未着）は非鮮度（false）。 */
+export function isFresh(
+  payload: UsagePayload | null,
+  nowMs: number,
+  staleMs: number = USAGE_STALE_MS,
+): boolean {
+  if (payload === null) return false;
+  return freshness(payload.ts, nowMs, staleMs) === 'fresh';
 }

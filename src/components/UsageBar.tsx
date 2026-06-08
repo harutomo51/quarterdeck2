@@ -1,12 +1,19 @@
 /**
- * プラン利用枠バー（ADR-0004 / issue 0001・0002）。
+ * プラン利用枠バー（ADR-0004 / issue 0001・0002・0003）。
  * 下部フッターに 5h / 7d 利用枠を 2 本描画し、使用率に応じて
  * 緑 (<70%) → オレンジ (70–90%) → 赤 (≥90%) で配色する。
  * 配色は背景レイヤー（バーの fill）だけに当て、文字色は不変（CLAUDE.md 外観方針）。
- * 鮮度判定とフォールバック非表示は issue 0003 で導入。
+ *
+ * degrade（issue 0003）: 値が stale / 未着 / rate_limits 欠落のときはフッター行ごと
+ * 静かに非表示にフォールバックする。本コンポーネントは app-body の兄弟であり、
+ * 非表示にしてもターミナル本体（PTY）の入出力・描画には影響しない。
  */
 import { useUsage } from '../hooks/useUsage';
-import { fiveHourPercent, sevenDayPercent, usageLevel } from '../lib/usage';
+import { useNow } from '../hooks/useNow';
+import { fiveHourPercent, sevenDayPercent, usageLevel, isFresh } from '../lib/usage';
+
+/** 鮮度を時間経過で再判定する間隔（ms）。 */
+const USAGE_TICK_MS = 5_000;
 
 interface QuotaBarProps {
   label: string;
@@ -34,16 +41,19 @@ function QuotaBar({ label, pct }: QuotaBarProps) {
 
 export function UsageBar() {
   const usage = useUsage();
+  const now = useNow(USAGE_TICK_MS);
+
   const five = fiveHourPercent(usage);
   const seven = sevenDayPercent(usage);
 
-  // どちらも未着なら何も描かない（本格的な degrade は issue 0003）。
-  if (five === null && seven === null) return null;
+  // stale / 未着 / 両ウィンドウ欠落のいずれかなら、フッター行ごと非表示（degrade）。
+  const show = isFresh(usage, now) && (five !== null || seven !== null);
+  if (!show) return null;
 
   return (
-    <>
+    <footer className="statusbar">
       <QuotaBar label="5h" pct={five} />
       <QuotaBar label="7d" pct={seven} />
-    </>
+    </footer>
   );
 }

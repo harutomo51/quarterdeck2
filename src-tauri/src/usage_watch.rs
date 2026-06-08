@@ -117,14 +117,26 @@ impl UsageWatcher {
     }
 }
 
-/// ファイルがあれば読んでパースし emit。無ければ／壊れていれば静かに何もしない。
+/// ファイルがあれば読んでパースし emit。
+/// degrade（issue 0003）: 未作成（NotFound）は正常系として黙って何もしない。
+/// 読み取り失敗・パース不能（破損 / `rate_limits`・`ts` 欠落）は**異常**として
+/// ログに残しつつ emit しない（UI 側は鮮度切れ扱いで静かに非表示）。
 fn emit_if_present(app: &AppHandle, file: &Path) {
     let contents = match std::fs::read_to_string(file) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            eprintln!("usage watch: read {} failed: {e}", file.display());
+            return;
+        }
     };
-    if let Some(usage) = parse_usage(&contents) {
-        let _ = app.emit("usage://rate_limits", usage);
+    match parse_usage(&contents) {
+        Some(usage) => {
+            let _ = app.emit("usage://rate_limits", usage);
+        }
+        None => {
+            eprintln!("usage watch: {} unparsable, skip emit", file.display());
+        }
     }
 }
 
