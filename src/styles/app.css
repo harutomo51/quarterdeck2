@@ -939,9 +939,23 @@ button.settings-row:hover,
 
 .usage-bar-fill {
   height: 100%;
-  /* issue 0001 は単色。色閾値（緑/オレンジ/赤）は issue 0002 で導入。 */
-  background: #4ea1ff;
-  transition: width var(--duration-normal, 300ms) ease;
+  transition:
+    width var(--duration-normal, 300ms) ease,
+    background-color var(--duration-fast, 150ms) ease;
+}
+
+/* 配色は背景レイヤー（fill）だけに当てる。文字色 (--fg) は不変。
+   緑 (<70%) → オレンジ (70–90%) → 赤 (≥90%)（issue 0002）。 */
+.usage-bar-fill--green {
+  background: #3fb950;
+}
+
+.usage-bar-fill--orange {
+  background: #d29922;
+}
+
+.usage-bar-fill--red {
+  background: #f85149;
 }
 
 .usage-bar-value {
