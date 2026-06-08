@@ -35,3 +35,19 @@ _Avoid_: ルート, 起動ディレクトリ（起動時の初期値にすぎな
 個別に持つ。Active Folder が追従するのは **Focused Pane の** PTY cwd であり、
 cwd 追跡機構（OSC 等）が renderer に伝える。
 _Avoid_: カレントディレクトリ（FsRoot / Active Folder と混同するため文脈を明示する）
+
+**Plan Quota（プラン利用枠）**:
+Claude Code サブスク（Max / Pro）の利用上限枠。**5時間枠（5h）** と **7日枠（7d）** の
+2 種があり、いずれも 0–100% の使用率を持つ。Claude **アカウント単位**の値であり、
+どの Pane・どの Claude Code セッションから見ても同一。Pane ごとに異なる cwd を持つ
+Pane / Active Folder とは性質が異なる。
+_Avoid_: トークン消費（バーが表すのは枠の使用率であって生のトークン数ではない）,
+レートリミット（ユーザー向け語彙としては「利用枠」に統一）
+
+**Usage Bar（使用率バー）**:
+ウィンドウ下部フッターに常駐し、**Plan Quota**（5h / 7d）の使用率を緑→オレンジ→赤の
+色で示すバー。アカウント単位の値を映すため **Focused Pane には追従しない**
+（Active Folder のような Pane 追従とは無関係）。元データは Claude Code の statusline が
+出力する `rate_limits` で、quarterdeck は外側からそれを読み取って描画する。
+_Avoid_: ステータスライン（Claude Code 本体が端末に出す行と紛らわしい。あちらは
+"statusline"、quarterdeck 側 UI は "Usage Bar"）

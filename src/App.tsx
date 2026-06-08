@@ -9,6 +9,7 @@ import { TerminalView } from './Terminal';
 import { PaneContainer } from './components/PaneContainer';
 import { Sidebar } from './components/Sidebar';
 import { SettingsPanel } from './components/SettingsPanel';
+import { UsageBar } from './components/UsageBar';
 import { useAppearance } from './hooks/useAppearance';
 import { useLayout } from './hooks/useLayout';
 import { usePaneTree } from './hooks/usePaneTree';
@@ -131,6 +132,9 @@ export default function App() {
           </aside>
         )}
       </div>
+      <footer className="statusbar">
+        <UsageBar />
+      </footer>
     </div>
   );
 }

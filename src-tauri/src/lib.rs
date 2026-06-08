@@ -5,6 +5,7 @@ mod fs_scope;
 mod fs_watch;
 mod git;
 mod pty;
+mod usage_watch;
 
 use std::path::PathBuf;
 
@@ -12,6 +13,7 @@ use fs_scope::FsRoot;
 use fs_watch::FsWatcher;
 use pty::PtyState;
 use tauri::Manager;
+use usage_watch::UsageWatcher;
 
 /// `USERPROFILE`（実在ディレクトリのとき）を優先し、無ければ cwd を採用する純粋ロジック。
 /// 副作用（環境変数・FS 参照）と分離してテスト可能にする。
@@ -38,11 +40,15 @@ pub fn run() {
         .manage(PtyState::default())
         .manage(FsRoot::new(initial_dir()))
         .manage(FsWatcher::new())
+        .manage(UsageWatcher::new())
         .setup(|app| {
             // ファイルツリー自動更新（ADR-0003）: 起動時の FsRoot を初回監視する。
             // 失敗は FsWatcher 内で静かに degrade。
             let root = app.state::<FsRoot>().current();
             app.state::<FsWatcher>().watch(&app.handle().clone(), &root);
+            // プラン利用枠バー（ADR-0004）: ~/.claude/quarterdeck-usage.json を監視。
+            // FsRoot とは別系統。失敗は UsageWatcher 内で静かに degrade。
+            app.state::<UsageWatcher>().watch(&app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
