@@ -38,6 +38,9 @@ pub(crate) fn initial_dir() -> PathBuf {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // HTML プレビューを既定ブラウザで開く（ADR-0006）。JS には opener コマンドを
+        // 公開せず、自前の open_in_browser から Rust API 経由でのみ呼ぶ（最小権限）。
+        .plugin(tauri_plugin_opener::init())
         // PDF プレビューのバイト配信（ADR-0005）。command ではない第二の信頼境界。
         // ハンドラ内で resolve_within 再検証 + .pdf 限定を強制する。
         .register_uri_scheme_protocol("pdf", pdf::handle_pdf_request)
@@ -63,6 +66,7 @@ pub fn run() {
             pty::pty_focus,
             fs_scope::list_dir,
             fs_scope::read_preview,
+            fs_scope::open_in_browser,
             git::git_log,
             git::git_worktree_list,
         ])

@@ -32,12 +32,21 @@ interface PreviewWindowProps {
 export function PreviewWindow({ rel }: PreviewWindowProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<Preview>('read_preview', { rel })
       .then(setPreview)
       .catch((e) => setError(String(e)));
   }, [rel]);
+
+  // 未信頼 HTML をアプリ内 WebView の CSP/sandbox を緩めて描画する代わりに、
+  // OS 既定ブラウザのサンドボックスへ追い出して完全描画する（ADR-0006）。
+  // スコープ強制は Rust 側 open_in_browser（resolve_within）が担保する。
+  function handleOpenInBrowser(): void {
+    setOpenError(null);
+    invoke('open_in_browser', { rel }).catch((e) => setOpenError(String(e)));
+  }
 
   const markdownHtml = useMemo(
     () => (preview?.kind === 'markdown' ? md.render(preview.content) : ''),
@@ -83,12 +92,23 @@ export function PreviewWindow({ rel }: PreviewWindowProps) {
 
   if (preview.kind === 'html') {
     return (
-      <iframe
-        className="preview preview--html"
-        title={rel}
-        sandbox="allow-scripts"
-        srcDoc={preview.content}
-      />
+      <div className="preview-html-shell">
+        <div className="preview-toolbar">
+          <span className="preview-toolbar-note">
+            外部リソース・スクリプトはアプリ内では制限されます
+          </span>
+          <button type="button" className="preview-open-btn" onClick={handleOpenInBrowser}>
+            ブラウザで開く
+          </button>
+        </div>
+        {openError && <p className="preview-toolbar-error">{openError}</p>}
+        <iframe
+          className="preview preview--html"
+          title={rel}
+          sandbox="allow-scripts"
+          srcDoc={preview.content}
+        />
+      </div>
     );
   }
 

@@ -789,11 +789,67 @@ button.settings-row:hover,
 
 .preview--html,
 .preview--pdf {
+  display: block; /* iframe 既定の inline によるベースライン余白で外側スクロールが出るのを防ぐ */
   width: 100%;
   height: 100%;
   border: 0;
   padding: 0;
   background: #fff;
+}
+
+/* HTML プレビューはツールバー（ブラウザで開く）+ iframe の縦積み。ADR-0006。 */
+.preview-html-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--app-bg, #0f1115);
+  border-bottom: 1px solid #20242d;
+}
+
+.preview-toolbar-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.preview-open-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.preview-open-btn:hover {
+  background: var(--accent);
+  color: #0f1115;
+}
+
+.preview-toolbar-error {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #ff6b6b;
+  background: var(--app-bg, #0f1115);
+}
+
+/* shell 内の iframe は残り高さを埋める（height:100% だとツールバー分あふれる）。 */
+.preview-html-shell .preview--html {
+  flex: 1;
+  height: auto;
+  min-height: 0;
 }
 
 .preview--error pre {

@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_opener::OpenerExt;
 
 pub struct FsRoot {
     root: Mutex<PathBuf>,
@@ -178,6 +179,26 @@ pub fn read_preview(rel: String, state: State<FsRoot>) -> Result<Preview, String
     }
     .to_string();
     Ok(Preview { kind, content })
+}
+
+/// HTML プレビューを **OS 既定のブラウザ**で開く（ADR-0006）。
+///
+/// アプリ内 WebView の CSP / sandbox を緩めて未信頼 HTML を完全描画する代わりに、
+/// バイトを Tauri プロセスの外（本物のブラウザのサンドボックス）に追い出す方式。
+/// アプリの信頼境界（Tauri IPC・CSP）から完全に切り離されるため、`allow-same-origin`
+/// 追加のような境界破壊が起きない。
+///
+/// `resolve_within` が `FsRoot` 配下＋シンボリックリンク解決を強制する（信頼境界）。
+/// `..` traversal や絶対パスはここで reject される。opener へは検証済みの絶対パスを
+/// 渡し、シェル文字列を組み立てない（コマンドインジェクション不可）。
+#[tauri::command]
+pub fn open_in_browser(rel: String, app: AppHandle, state: State<FsRoot>) -> Result<(), String> {
+    let root = state.current();
+    let path = resolve_within(&root, &rel)?;
+    let target = path.to_string_lossy().into_owned();
+    app.opener()
+        .open_path(target, None::<&str>)
+        .map_err(|e| format!("ブラウザで開けませんでした: {e}"))
 }
 
 #[cfg(test)]
