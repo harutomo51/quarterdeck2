@@ -2606,6 +2606,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "notify-debouncer-mini",
+ "percent-encoding",
  "portable-pty",
  "serde",
  "serde_json",

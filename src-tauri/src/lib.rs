@@ -4,6 +4,7 @@
 mod fs_scope;
 mod fs_watch;
 mod git;
+mod pdf;
 mod pty;
 mod usage_watch;
 
@@ -37,6 +38,9 @@ pub(crate) fn initial_dir() -> PathBuf {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // PDF プレビューのバイト配信（ADR-0005）。command ではない第二の信頼境界。
+        // ハンドラ内で resolve_within 再検証 + .pdf 限定を強制する。
+        .register_uri_scheme_protocol("pdf", pdf::handle_pdf_request)
         .manage(PtyState::default())
         .manage(FsRoot::new(initial_dir()))
         .manage(FsWatcher::new())

@@ -34,3 +34,15 @@ export function previewWindowLabel(rel: string): string {
 export function joinRel(parent: string, name: string): string {
   return parent ? `${parent}/${name}` : name;
 }
+
+/**
+ * PDF プレビュー用の URL を組み立てる（ADR-0005）。
+ * Windows では Tauri がカスタムスキームを `http://<scheme>.localhost` で配信するため、
+ * `pdf://` ではなく `http://pdf.localhost` を基点にする。rel の各セグメントを
+ * encodeURIComponent でエスケープし（`/` は区切りとして温存）、Rust 側ハンドラが
+ * percent-decode で rel を復元する。
+ */
+export function buildPdfUrl(rel: string): string {
+  const encoded = rel.split('/').map(encodeURIComponent).join('/');
+  return `http://pdf.localhost/${encoded}`;
+}

@@ -5,14 +5,18 @@
  * - markdown: markdown-it でレンダリング（html:false で生 HTML を無効化＝XSS 抑止）
  * - html: <iframe sandbox="allow-scripts">（allow-same-origin は付けない。CLAUDE.md）
  * - code: highlight.js でシンタックスハイライト
+ * - pdf: <iframe src="http://pdf.localhost/..."> で WebView2 内蔵ビューアに描画（ADR-0005）。
+ *   バイトは pdf:// カスタムプロトコルが resolve_within 再検証つきで配信する。
  *
- * スコープ強制・1MB 制限は Rust 側 read_preview が担保する。
+ * スコープ強制は Rust 側が担保する（read_preview / pdf:// ハンドラ共に resolve_within）。
+ * 1MB 制限はテキスト経路のみ。pdf:// はストリーム配信でサイズ無制限。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
+import { buildPdfUrl } from '../lib/preview';
 
 interface Preview {
   kind: string;
@@ -68,6 +72,13 @@ export function PreviewWindow({ rel }: PreviewWindowProps) {
         />
       </div>
     );
+  }
+
+  if (preview.kind === 'pdf') {
+    // バイトは pdf:// カスタムプロトコルが resolve_within 再検証つきで配信し、
+    // WebView2 内蔵ビューアが描画する（ADR-0005）。html 分岐と違い任意ユーザー
+    // HTML ではなくブラウザ純正ビューアなので sandbox は付けない。
+    return <iframe className="preview preview--pdf" title={rel} src={buildPdfUrl(rel)} />;
   }
 
   if (preview.kind === 'html') {

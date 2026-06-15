@@ -4,6 +4,7 @@ import {
   parsePreviewParam,
   previewWindowLabel,
   joinRel,
+  buildPdfUrl,
 } from '@/lib/preview';
 
 describe('buildPreviewUrl', () => {
@@ -52,5 +53,23 @@ describe('joinRel', () => {
 
   test('returns the name alone when parent is empty', () => {
     expect(joinRel('', 'readme.md')).toBe('readme.md');
+  });
+});
+
+describe('buildPdfUrl', () => {
+  test('builds an http://pdf.localhost url with the rel path', () => {
+    expect(buildPdfUrl('docs/report.pdf')).toBe('http://pdf.localhost/docs/report.pdf');
+  });
+
+  test('encodes each segment but preserves slash separators', () => {
+    // 空白・日本語は percent-encode しつつ、`/` は区切りとして温存する。
+    expect(buildPdfUrl('資料/my report.pdf')).toBe(
+      'http://pdf.localhost/%E8%B3%87%E6%96%99/my%20report.pdf',
+    );
+  });
+
+  test('encodes characters that would break the path', () => {
+    // `#`/`?` はそのまま渡すと URL のフラグメント/クエリと解釈されるためエスケープ。
+    expect(buildPdfUrl('a#b?.pdf')).toBe('http://pdf.localhost/a%23b%3F.pdf');
   });
 });

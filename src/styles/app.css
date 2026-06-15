@@ -787,7 +787,8 @@ button.settings-row:hover,
   white-space: pre;
 }
 
-.preview--html {
+.preview--html,
+.preview--pdf {
   width: 100%;
   height: 100%;
   border: 0;

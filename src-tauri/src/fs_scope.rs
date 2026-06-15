@@ -65,11 +65,19 @@ pub struct Entry {
 pub(crate) const EXCLUDE: &[&str] = &["node_modules", ".git", "out", "dist", "target"];
 const MAX_PREVIEW_BYTES: u64 = 1024 * 1024; // 1MB プレビュー制限
 
+/// 拡張子が `.pdf`（大文字小文字無視）か。`read_preview` のテキスト経路回避と
+/// `pdf://` ハンドラの許可判定が同じ基準を共有する（ADR-0005）。
+pub(crate) fn is_pdf(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+}
+
 /// `root` 配下の相対パス `rel` を正規化し、root の外へ出ていないか検証する。
 ///
 /// `canonicalize` で `..` とシンボリックリンクを解決した上で `starts_with(root)`
 /// を強制するため、`..` traversal・絶対パス・root 外を指すリンクはすべて reject。
-fn resolve_within(root: &Path, rel: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_within(root: &Path, rel: &str) -> Result<PathBuf, String> {
     let canon = root.join(rel).canonicalize().map_err(|e| e.to_string())?;
     if !canon.starts_with(root) {
         return Err("path is outside the allowed root".into());
@@ -150,6 +158,15 @@ pub struct Preview {
 pub fn read_preview(rel: String, state: State<FsRoot>) -> Result<Preview, String> {
     let root = state.current();
     let path = resolve_within(&root, &rel)?;
+    // PDF はバイナリ。テキスト経路（read_to_string / 1MB 制限）に乗せず kind="pdf" を
+    // 返し、PreviewWindow に pdf:// iframe を描かせる。実バイトは pdf:// カスタム
+    // プロトコルが resolve_within 再検証つきでストリーム配信する（ADR-0005）。
+    if is_pdf(&path) {
+        return Ok(Preview {
+            kind: "pdf".into(),
+            content: String::new(),
+        });
+    }
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_PREVIEW_BYTES {
         return Err("file exceeds 1MB preview limit".into());
     }
@@ -165,10 +182,25 @@ pub fn read_preview(rel: String, state: State<FsRoot>) -> Result<Preview, String
 
 #[cfg(test)]
 mod tests {
-    use super::{affected_dirs, resolve_within, FsRoot};
+    use super::{affected_dirs, is_pdf, resolve_within, FsRoot};
     use std::fs;
     use std::path::{Path, PathBuf};
     use tempfile::tempdir;
+
+    #[test]
+    fn is_pdf_accepts_pdf_extension_case_insensitively() {
+        assert!(is_pdf(Path::new("a/report.pdf")));
+        assert!(is_pdf(Path::new("a/REPORT.PDF")));
+        assert!(is_pdf(Path::new("a/Report.Pdf")));
+    }
+
+    #[test]
+    fn is_pdf_rejects_non_pdf_and_extensionless() {
+        assert!(!is_pdf(Path::new("a/report.md")));
+        assert!(!is_pdf(Path::new("a/report.pdf.txt")));
+        assert!(!is_pdf(Path::new("a/pdf"))); // 拡張子ではなくファイル名
+        assert!(!is_pdf(Path::new("a/Makefile")));
+    }
 
     #[test]
     fn affected_dirs_maps_a_file_change_to_its_parent_rel() {
