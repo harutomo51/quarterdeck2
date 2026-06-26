@@ -99,7 +99,27 @@ export function TerminalView({
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(ref.current!);
+
+    // DPR（ディスプレイ拡大率）が 1 でないと xterm の1セル幅がデバイスピクセルに丸められ、
+    // 実描画セル幅が css.cell.width よりわずかに広くなる。これが数十カラム積もると可視幅を
+    // 超え、最終カラムが .terminal-host の overflow:hidden でクリップされる（スクロールバーが
+    // 無くても起きる）。fit 後に実測し、はみ出していれば cols を詰める。スクロールバーは
+    // ::-webkit-scrollbar で非オーバーレイ化してあるので、viewport.clientWidth はスクロール
+    // バーを除いた可視幅を返す。固定 padding 吸収はフォント・DPR 依存で脆いのでこの方式を採る。
+    const host = ref.current!;
+    const trimOverflowCols = () => {
+      const screen = host.querySelector('.xterm-screen') as HTMLElement | null;
+      const viewport = host.querySelector('.xterm-viewport') as HTMLElement | null;
+      if (!screen || !viewport) return;
+      let guard = 0;
+      while (term.cols > 2 && screen.offsetWidth > viewport.clientWidth && guard < 4) {
+        term.resize(term.cols - 1, term.rows);
+        guard += 1;
+      }
+    };
+
     fit.fit();
+    trimOverflowCols();
 
     // ショートカットを PTY へ流す前に横取りする（一致すれば onAction、PTY へは送らない）。
     term.attachCustomKeyEventHandler((e) => {
@@ -155,6 +175,7 @@ export function TerminalView({
     // 同じ cols/rows での無駄な resize 送信（= SIGWINCH 連発）を避ける。
     const applyResize = () => {
       fit.fit();
+      trimOverflowCols();
       if (term.cols !== lastCols || term.rows !== lastRows) {
         lastCols = term.cols;
         lastRows = term.rows;
