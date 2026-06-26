@@ -46,3 +46,9 @@ export function buildPdfUrl(rel: string): string {
   const encoded = rel.split('/').map(encodeURIComponent).join('/');
   return `http://pdf.localhost/${encoded}`;
 }
+
+/** Image preview URL served by the Rust-side image URI handler. */
+export function buildImageUrl(rel: string): string {
+  const encoded = rel.split('/').map(encodeURIComponent).join('/');
+  return `http://image.localhost/${encoded}`;
+}

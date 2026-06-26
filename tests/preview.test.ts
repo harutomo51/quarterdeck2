@@ -5,6 +5,7 @@ import {
   previewWindowLabel,
   joinRel,
   buildPdfUrl,
+  buildImageUrl,
 } from '@/lib/preview';
 
 describe('buildPreviewUrl', () => {
@@ -71,5 +72,17 @@ describe('buildPdfUrl', () => {
   test('encodes characters that would break the path', () => {
     // `#`/`?` はそのまま渡すと URL のフラグメント/クエリと解釈されるためエスケープ。
     expect(buildPdfUrl('a#b?.pdf')).toBe('http://pdf.localhost/a%23b%3F.pdf');
+  });
+});
+
+describe('buildImageUrl', () => {
+  test('builds an http://image.localhost url with the rel path', () => {
+    expect(buildImageUrl('assets/photo.png')).toBe('http://image.localhost/assets/photo.png');
+  });
+
+  test('encodes each segment but preserves slash separators', () => {
+    expect(buildImageUrl('資料/my photo #1.jpg')).toBe(
+      'http://image.localhost/%E8%B3%87%E6%96%99/my%20photo%20%231.jpg',
+    );
   });
 });

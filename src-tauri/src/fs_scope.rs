@@ -74,6 +74,21 @@ pub(crate) fn is_pdf(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
 }
 
+pub(crate) fn image_mime(path: &Path) -> Option<&'static str> {
+    match path.extension().and_then(|e| e.to_str())?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "svg" => Some("image/svg+xml"),
+        _ => None,
+    }
+}
+
+pub(crate) fn is_image(path: &Path) -> bool {
+    image_mime(path).is_some()
+}
+
 /// `root` 配下の相対パス `rel` を正規化し、root の外へ出ていないか検証する。
 ///
 /// `canonicalize` で `..` とシンボリックリンクを解決した上で `starts_with(root)`
@@ -168,6 +183,13 @@ pub fn read_preview(rel: String, state: State<FsRoot>) -> Result<Preview, String
             content: String::new(),
         });
     }
+    if is_image(&path) {
+        let mime = image_mime(&path).expect("is_image ensures an image MIME");
+        return Ok(Preview {
+            kind: "image".into(),
+            content: mime.into(),
+        });
+    }
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_PREVIEW_BYTES {
         return Err("file exceeds 1MB preview limit".into());
     }
@@ -203,7 +225,7 @@ pub fn open_in_browser(rel: String, app: AppHandle, state: State<FsRoot>) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::{affected_dirs, is_pdf, resolve_within, FsRoot};
+    use super::{affected_dirs, image_mime, is_image, is_pdf, resolve_within, FsRoot};
     use std::fs;
     use std::path::{Path, PathBuf};
     use tempfile::tempdir;
@@ -221,6 +243,34 @@ mod tests {
         assert!(!is_pdf(Path::new("a/report.pdf.txt")));
         assert!(!is_pdf(Path::new("a/pdf"))); // 拡張子ではなくファイル名
         assert!(!is_pdf(Path::new("a/Makefile")));
+    }
+
+    #[test]
+    fn is_image_accepts_common_web_image_extensions_case_insensitively() {
+        assert!(is_image(Path::new("a/photo.png")));
+        assert!(is_image(Path::new("a/photo.JPG")));
+        assert!(is_image(Path::new("a/photo.Jpeg")));
+        assert!(is_image(Path::new("a/photo.gif")));
+        assert!(is_image(Path::new("a/photo.webp")));
+        assert!(is_image(Path::new("a/photo.svg")));
+    }
+
+    #[test]
+    fn is_image_rejects_non_images_and_extensionless() {
+        assert!(!is_image(Path::new("a/report.pdf")));
+        assert!(!is_image(Path::new("a/photo.png.txt")));
+        assert!(!is_image(Path::new("a/image")));
+    }
+
+    #[test]
+    fn image_mime_returns_browser_safe_content_types() {
+        assert_eq!(image_mime(Path::new("a/photo.png")), Some("image/png"));
+        assert_eq!(image_mime(Path::new("a/photo.jpg")), Some("image/jpeg"));
+        assert_eq!(image_mime(Path::new("a/photo.jpeg")), Some("image/jpeg"));
+        assert_eq!(image_mime(Path::new("a/photo.gif")), Some("image/gif"));
+        assert_eq!(image_mime(Path::new("a/photo.webp")), Some("image/webp"));
+        assert_eq!(image_mime(Path::new("a/photo.svg")), Some("image/svg+xml"));
+        assert_eq!(image_mime(Path::new("a/report.pdf")), None);
     }
 
     #[test]

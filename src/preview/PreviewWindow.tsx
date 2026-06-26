@@ -16,7 +16,7 @@ import { invoke } from '@tauri-apps/api/core';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
-import { buildPdfUrl } from '../lib/preview';
+import { buildImageUrl, buildPdfUrl } from '../lib/preview';
 
 interface Preview {
   kind: string;
@@ -88,6 +88,14 @@ export function PreviewWindow({ rel }: PreviewWindowProps) {
     // WebView2 内蔵ビューアが描画する（ADR-0005）。html 分岐と違い任意ユーザー
     // HTML ではなくブラウザ純正ビューアなので sandbox は付けない。
     return <iframe className="preview preview--pdf" title={rel} src={buildPdfUrl(rel)} />;
+  }
+
+  if (preview.kind === 'image') {
+    return (
+      <div className="preview preview--image">
+        <img src={buildImageUrl(rel)} alt={rel} />
+      </div>
+    );
   }
 
   if (preview.kind === 'html') {
